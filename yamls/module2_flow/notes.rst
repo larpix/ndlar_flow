@@ -67,7 +67,7 @@ Charge
 
 * ``yamls/module1_flow/reco/charge/CalibHitBuilder.yaml``
 
-  Copied and modified from module1's. Used ``pedestal_file`` and ``configuration_file`` found in older module2 yaml files.
+  Copied and modified from module1's. Used ``pedestal_file`` and ``configuration_file`` that Sam had made. 
 
 5. ``yamls/module1_flow/workflows/charge/final_calibration.yaml``
 
