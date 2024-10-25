@@ -1223,7 +1223,7 @@ def plot_2d_charge(data, evid):
             x=z,
             y=x,
             legendgroup= "saturated_2d",
-            showlegend=True,
+            showlegend=False,
             marker={
                 "size": 4.,
                 "symbol": 'x',
@@ -1236,7 +1236,7 @@ def plot_2d_charge(data, evid):
             x=z,
             y=y,
             legendgroup= "saturated_2d",
-            showlegend=True,
+            showlegend=False,
             marker={
                 "size": 4.,
                 "symbol": 'x',
@@ -1273,7 +1273,7 @@ def plot_2d_charge(data, evid):
             x=z,
             y=x,
             legendgroup= "negative_2d",
-            showlegend=True,
+            showlegend=False,
             marker={
                 "size": 4.,
                 "symbol": 'x',
@@ -1286,7 +1286,7 @@ def plot_2d_charge(data, evid):
             x=z,
             y=y,
             legendgroup= "negative_2d",
-            showlegend=True,
+            showlegend=False,
             marker={
                 "size": 4.,
                 "symbol": 'x',
