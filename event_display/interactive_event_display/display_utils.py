@@ -203,7 +203,12 @@ def create_3d_figure(minerva_data, data, filename, evid):
         fig.add_traces(minerva_hit_traces)
 
     # Draw the TPC
-    tpc_center, anodes, cathodes = draw_tpc(sim_version)
+    try:
+        mod_bounds = data['geometry_info'].attrs['module_RO_bounds']
+        det_bounds = data['geometry_info'].attrs['lar_detector_bounds']
+        tpc_center, anodes, cathodes = draw_tpc(sim_version="default", mod_bounds=mod_bounds, det_bounds=det_bounds)
+    except:
+        tpc_center, anodes, cathodes = draw_tpc(sim_version)
     light_detectors = draw_light_detectors(data, evid, sim_version)
 
     fig.add_traces(tpc_center)
@@ -407,8 +412,8 @@ def create_3d_figure(minerva_data, data, filename, evid):
                 "xanchor": "left",
                 "x": 0,
             },
-            "cmin": 0.,
-            "cmax": 5.,
+            "cmin": -1.,
+            "cmax": 4.,
         },
         name="final hits",
         mode="markers",
@@ -450,41 +455,68 @@ def plot_segs(segs, sim_version="minirun5", **kwargs):
     return trace
 
 
-def draw_tpc(sim_version="minirun5"):
-    anode_xs = np.array([-63.931, -3.069, 3.069, 63.931])
-    anode_ys = np.array([-19.8543, 103.8543])  # two ys
-    anode_zs = np.array([-64.3163, -2.6837, 2.6837, 64.3163])  # four zs
-    if sim_version == "minirun4":  # hit coordinates are in cm
-        detector_center = (0, -268, 1300)
-        anode_ys = anode_ys - (268 + 42)
-        anode_zs = anode_zs + 1300
-    if sim_version == "minirun5" or sim_version == "data":  # hit coordinates are in cm
-        detector_center = (0, 0, 0)
-        anode_ys = anode_ys - 42
-    if sim_version == "single_mod":  # module 1
-        detector_center = (0, 0, 0)
-        anode_xs = anode_xs[1:2]
-        anode_ys = anode_ys
-        anode_zs = anode_zs[0:2] + 33
+def draw_tpc(geo_version="default", mod_bounds=np.array([]), det_bounds=np.array([])):
+    if geo_version == "default":
+        center = go.Scatter3d(
+            x=np.mean(det_bounds[:,0]),
+            y=np.mean(det_bounds[:,1]),
+            z=np.mean(det_bounds[:,2]),
+            marker=dict(size=3, color="green", opacity=0.5),
+            mode="markers",
+            name="tpcs' center",
+        )
 
-    center = go.Scatter3d(
-        x=[detector_center[0]],
-        y=[detector_center[1]],
-        z=[detector_center[2]],
-        marker=dict(size=3, color="green", opacity=0.5),
-        mode="markers",
-        name="tpc center",
-    )
+        anodes = draw_anode_planes_default(
+            mod_bounds, colorscale="ice", showscale=False, opacity=0.1
+        )
+        cathodes = draw_cathode_planes_default(
+            mod_bounds, colorscale="burg", showscale=False, opacity=0.1
+        )
+    else:
+        anode_xs = np.array([-63.931, -3.069, 3.069, 63.931])
+        anode_ys = np.array([-19.8543, 103.8543])  # two ys
+        anode_zs = np.array([-64.3163, -2.6837, 2.6837, 64.3163])  # four zs
+        if geo_version == "minirun4":  # hit coordinates are in cm
+            detector_center = (0, -268, 1300)
+            anode_ys = anode_ys - (268 + 42)
+            anode_zs = anode_zs + 1300
+        if geo_version == "minirun5" or geo_version == "data":  # hit coordinates are in cm
+            detector_center = (0, 0, 0)
+            anode_ys = anode_ys - 42
+        if geo_version == "single_mod":  # module 1
+            detector_center = (0, 0, 0)
+            anode_xs = anode_xs[1:2]
+            anode_ys = anode_ys
+            anode_zs = anode_zs[0:2] + 33
 
-    anodes = draw_anode_planes(
-        anode_xs, anode_ys, anode_zs, colorscale="ice", showscale=False, opacity=0.1
-    )
-    cathodes = draw_cathode_planes(
-        anode_xs, anode_ys, anode_zs, colorscale="burg", showscale=False, opacity=0.1
-    )
+        center = go.Scatter3d(
+            x=[detector_center[0]],
+            y=[detector_center[1]],
+            z=[detector_center[2]],
+            marker=dict(size=3, color="green", opacity=0.5),
+            mode="markers",
+            name="tpc center",
+        )
+
+        anodes = draw_anode_planes(
+            anode_xs, anode_ys, anode_zs, colorscale="ice", showscale=False, opacity=0.1
+        )
+        cathodes = draw_cathode_planes(
+            anode_xs, anode_ys, anode_zs, colorscale="burg", showscale=False, opacity=0.1
+        )
 
     return center, anodes, cathodes
 
+def draw_cathode_planes_default(mod_bounds, **kwargs):
+    traces = []
+    for i_mod, this_mod_bounds in enumerate(mod_bounds):
+        z, y = np.meshgrid(this_mod_bounds[:,2], this_mod_bounds[:, 1])
+        x = np.mean(this_mod_bounds[:,0] * np.ones(z.shape))
+        trace = go.Surface(
+            x=x, y=y, z=z, hovertemplate=f"Module {i_mod}", **kwargs
+        )
+        traces.append(trace)
+    return traces
 
 def draw_cathode_planes(x_boundaries, y_boundaries, z_boundaries, **kwargs):
     index_to_number = {(1, 1): 0, (1, 0): 1, (0, 1): 2, (0, 0): 3}
@@ -509,6 +541,19 @@ def draw_cathode_planes(x_boundaries, y_boundaries, z_boundaries, **kwargs):
 
     return traces
 
+def draw_anode_planes_default(mod_bounds, **kwargs):
+    traces = []
+    for i_mod, this_mod_bounds in enumerate(mod_bounds):
+        for i_tpc in [1, 2]:
+            z, y = np.meshgrid(this_mod_bounds[:,2], this_mod_bounds[:, 1])
+            # the module numbering starts from 0, and the tpc numbering starts from 1
+            # FIXME: In 2x2, the high x side is the odd number of the tpc. Need to check for single module, FSD and NDLAr
+            x = this_mod_bounds[:,0][2-i_tpc] * np.ones(z.shape)
+            trace = go.Surface(
+                x=x, y=y, z=z, hovertemplate=f"Module {i_mod} TPC {i_mod*2 + i_tpc}", **kwargs
+            )
+            traces.append(trace)
+    return traces
 
 def draw_anode_planes(x_boundaries, y_boundaries, z_boundaries, **kwargs):
     index_to_number = {
