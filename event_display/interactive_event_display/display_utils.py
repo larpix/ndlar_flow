@@ -362,7 +362,7 @@ def create_3d_figure(minerva_data, data, filename, evid):
             marker={
                 "size": 1.75,
                 "symbol": 'x',
-                "color": '17becf', #'#19D3F3',
+                "color": '#17becf', #'#19D3F3',
                 },
             mode="markers",
             name="saturated hits",
