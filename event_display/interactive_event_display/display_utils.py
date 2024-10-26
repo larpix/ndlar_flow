@@ -206,9 +206,9 @@ def create_3d_figure(minerva_data, data, filename, evid):
     try:
         mod_bounds = data['geometry_info'].attrs['module_RO_bounds']
         det_bounds = data['geometry_info'].attrs['lar_detector_bounds']
-        tpc_center, anodes, cathodes = draw_tpc(sim_version="default", mod_bounds=mod_bounds, det_bounds=det_bounds)
+        tpc_center, anodes, cathodes = draw_tpc(geo_version="default", mod_bounds=mod_bounds, det_bounds=det_bounds)
     except:
-        tpc_center, anodes, cathodes = draw_tpc(sim_version)
+        tpc_center, anodes, cathodes = draw_tpc(geo_version=sim_version)
     light_detectors = draw_light_detectors(data, evid, sim_version)
 
     fig.add_traces(tpc_center)
@@ -458,9 +458,9 @@ def plot_segs(segs, sim_version="minirun5", **kwargs):
 def draw_tpc(geo_version="default", mod_bounds=np.array([]), det_bounds=np.array([])):
     if geo_version == "default":
         center = go.Scatter3d(
-            x=np.mean(det_bounds[:,0]),
-            y=np.mean(det_bounds[:,1]),
-            z=np.mean(det_bounds[:,2]),
+            x=[np.mean(det_bounds[:,0])],
+            y=[np.mean(det_bounds[:,1])],
+            z=[np.mean(det_bounds[:,2])],
             marker=dict(size=3, color="green", opacity=0.5),
             mode="markers",
             name="tpcs' center",
@@ -511,7 +511,7 @@ def draw_cathode_planes_default(mod_bounds, **kwargs):
     traces = []
     for i_mod, this_mod_bounds in enumerate(mod_bounds):
         z, y = np.meshgrid(this_mod_bounds[:,2], this_mod_bounds[:, 1])
-        x = np.mean(this_mod_bounds[:,0] * np.ones(z.shape))
+        x = np.mean(this_mod_bounds[:,0]) * np.ones(z.shape)
         trace = go.Surface(
             x=x, y=y, z=z, hovertemplate=f"Module {i_mod}", **kwargs
         )
@@ -1202,6 +1202,9 @@ def plot_2d_charge(data, evid):
         showlegend=False,
     )
 
+    #try:
+    #    for this_mod_bounds in mod_bounds:
+            
     cathode_line_1 = go.Scatter(
         x=[-(63.931+3.069)/2, -(63.931+3.069)/2],
         y=[-63.931, 63.931],
