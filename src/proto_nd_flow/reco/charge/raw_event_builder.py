@@ -456,7 +456,11 @@ class ExtTrigRawEventBuilder(RawEventBuilder):
         if mc_assn is not None:
             mc_assn = mc_assn[sorted_idcs]
         
-        beam_trigger_idxs = np.where((packets['io_group'] == self.trig_io_grp) & (packets['packet_type'] == 7))[0]
+        trig_mask = packets['packet_type'] == 7
+        if self.trig_io_grp != -1:
+            trig_mask &= packets['io_group'] == self.trig_io_grp
+        beam_trigger_idxs = np.where(trig_mask)[0]
+
         if self.VALIDATE_HACK:
             n_orig = len(beam_trigger_idxs)
             beam_trigger_idxs = beam_trigger_idxs[::3]
@@ -478,7 +482,7 @@ class ExtTrigRawEventBuilder(RawEventBuilder):
             this_trig_time = ts[start_idx]
             start_times.append(this_trig_time)
             # FIXME & (ts % 1E7 != 0) is a hot fix for PPS signal
-            hotfix_mask = (ts % 1E7 != 0) | ((ts % 1E7 == 0) & (packets['io_group'] == self.trig_io_grp) & (packets['packet_type'] == 7))
+            hotfix_mask = (ts % 1E7 != 0) | ((ts % 1E7 == 0) & trig_mask)
             mask = ((ts - this_trig_time) >= 0) & ((ts - this_trig_time) <= self.window) & hotfix_mask
             events.append(packets[mask])
             event_unix_ts.append(unix_ts[mask])
