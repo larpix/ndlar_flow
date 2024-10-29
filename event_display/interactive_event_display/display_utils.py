@@ -217,20 +217,24 @@ def create_3d_figure(minerva_data, data, filename, evid):
     fig.add_traces(light_detectors)
 
     # Draw an arrow for the beam direction
-    fig.add_traces(
-        go.Cone(
-            x=[10],
-            y=[20],
-            z=[-75],
-            u=[0],
-            v=[0],
-            w=[1],
-            showscale=False,  # to hide the colorbar
-            sizemode="absolute",
-            sizeref=10,
-            anchor="tail",
+    # FIXME: hardcoded 2x2 beam direction
+    arrow_text = ""
+    if data['geometry_info'].attrs['module_RO_bounds'].shape[0] == 4:
+        fig.add_traces(
+            go.Cone(
+                x=[10],
+                y=[20],
+                z=[-75],
+                u=[0],
+                v=[0],
+                w=[1],
+                showscale=False,  # to hide the colorbar
+                sizemode="absolute",
+                sizeref=10,
+                anchor="tail",
+            )
         )
-    )
+        arrow_text = "Beam"
 
     fig.update_layout(
         font=dict(size=14),
@@ -250,7 +254,7 @@ def create_3d_figure(minerva_data, data, filename, evid):
                     x=10,
                     y=20,
                     z=-75,
-                    text="Beam",
+                    text=f"{arrow_text}",
                     xanchor="right",
                     xshift=10,
                     opacity=0.8,
@@ -1009,9 +1013,9 @@ def plot_charge(data, evid):
         opacity=0.5,
     )
 
-    for i in range(0, 8):
-        time_io = time[io_group == i + 1]
-        charge_io = charge[io_group == i + 1]
+    for i in np.unique(io_group):
+        time_io = time[io_group == i]
+        charge_io = charge[io_group == i]
 
         # Create the plot
         fig.add_trace(
@@ -1019,7 +1023,7 @@ def plot_charge(data, evid):
                 x=time_io,
                 y=charge_io,
                 nbinsx=20,
-                name=f"IO group {i+1}",
+                name=f"IO group {i}",
                 showlegend=True,
             ),
         )
@@ -1099,7 +1103,7 @@ def plot_charge_energy(data, evid):
 
 
 def plot_2d_charge(data, evid):
-    # Create a subplot with 1 row and 3 columns
+    # Create a subplot with 2 rows and 2 columns
     fig = make_subplots(rows=2, cols=2, vertical_spacing=0.1, horizontal_spacing=0.15)
     # Add watermark
     fig.add_annotation(
@@ -1202,46 +1206,89 @@ def plot_2d_charge(data, evid):
         showlegend=False,
     )
 
-    #try:
-    #    for this_mod_bounds in mod_bounds:
+    # xz projection -- x is vertical, and z is horizontal; the other two projection used the same convention
+    try:
+        mod_bounds = data['geometry_info'].attrs['module_RO_bounds']
+        for this_mod_bounds in mod_bounds:
+            # xz
+            # cathode
+            cathode_xz = go.Scatter(
+                x=np.sort(this_mod_bounds[:,2]),
+                y=[np.mean(this_mod_bounds[:,0])] * np.ones(this_mod_bounds[:,2].shape),
+                mode="lines",
+                line=dict(color="white", width=2),
+                showlegend=False,
+            )
+            fig.add_trace(cathode_xz, row=1, col=1)
+            # anode
+            for i_tpc in [1,2]:
+                anode_xz = go.Scatter(
+                    x=np.sort(this_mod_bounds[:,2]),
+                    y=[this_mod_bounds[:,0][2-i_tpc]] * np.ones(this_mod_bounds[:,2].shape),
+                    mode="lines",
+                    line=dict(color="white", width=2),
+                    showlegend=False,
+                )
+                fig.add_trace(anode_xz, row=1, col=1)
+            # box
+            box_xz = go.Scatter(
+                x=[this_mod_bounds[:,2].min(), this_mod_bounds[:,2].max(), this_mod_bounds[:,2].max(), this_mod_bounds[:,2].min(), this_mod_bounds[:,2].min()],
+                y=[this_mod_bounds[:,0].min(), this_mod_bounds[:,0].min(), this_mod_bounds[:,0].max(), this_mod_bounds[:,0].max(), this_mod_bounds[:,0].min()],
+                mode="lines",
+                line=dict(color="blue", width=0.5),
+                opacity=0.5,
+                showlegend=False,
+            )
+            fig.add_trace(box_xz, row=1, col=1)
+
+            # yz
+            # box
+            box_yz = go.Scatter(
+                x=[this_mod_bounds[:,2].min(), this_mod_bounds[:,2].max(), this_mod_bounds[:,2].max(), this_mod_bounds[:,2].min(), this_mod_bounds[:,2].min()],
+                y=[this_mod_bounds[:,1].min(), this_mod_bounds[:,1].min(), this_mod_bounds[:,1].max(), this_mod_bounds[:,1].max(), this_mod_bounds[:,1].min()],
+                mode="lines",
+                line=dict(color="blue", width=0.5),
+                opacity=0.5,
+                showlegend=False,
+            )
+            fig.add_trace(box_yz, row=2, col=1)
+
+            # yx
+            # cathode
+            cathode_yx = go.Scatter(
+                x=[np.mean(this_mod_bounds[:,0])] * np.ones(this_mod_bounds[:,1].shape),
+                y=np.sort(this_mod_bounds[:,1]),
+                mode="lines",
+                line=dict(color="white", width=2),
+                showlegend=False,
+            )
+            fig.add_trace(cathode_yx, row=2, col=2)
+            # anode
+            for i_tpc in [1,2]:
+                anode_yx = go.Scatter(
+                    x=[this_mod_bounds[:,0][2-i_tpc]] * np.ones(this_mod_bounds[:,1].shape),
+                    y=np.sort(this_mod_bounds[:,1]),
+                    mode="lines",
+                    line=dict(color="white", width=2),
+                    showlegend=False,
+                )
+                fig.add_trace(anode_yx, row=2, col=2)
+            # box
+            box_yx = go.Scatter(
+                x=[this_mod_bounds[:,0].min(), this_mod_bounds[:,0].max(), this_mod_bounds[:,0].max(), this_mod_bounds[:,0].min(), this_mod_bounds[:,0].min()],
+                y=[this_mod_bounds[:,1].min(), this_mod_bounds[:,1].min(), this_mod_bounds[:,1].max(), this_mod_bounds[:,1].max(), this_mod_bounds[:,1].min()],
+                mode="lines",
+                line=dict(color="blue", width=0.5),
+                opacity=0.5,
+                showlegend=False,
+            )
+            fig.add_trace(box_yx, row=2, col=2)
+    except:
+        print("Problem with the geometry attributes!")
             
-    cathode_line_1 = go.Scatter(
-        x=[-(63.931+3.069)/2, -(63.931+3.069)/2],
-        y=[-63.931, 63.931],
-        mode="lines",
-        line=dict(color="white", width=1),
-        showlegend=False,
-    )
-    cathode_line_2 = go.Scatter(
-        x=[(63.931+3.069)/2, (63.931+3.069)/2],
-        y=[-63.931, 63.931],
-        mode="lines",
-        line=dict(color="white", width=1),
-        showlegend=False,
-    )
-
-    cathode_line_3 = go.Scatter(
-        x=[-63.931, 63.931],
-        y=[-(63.931+3.069)/2, -(63.931+3.069)/2],
-        mode="lines",
-        line=dict(color="white", width=1),
-        showlegend=False,
-    )
-    cathode_line_4 = go.Scatter(
-        x=[-63.931, 63.931],
-        y=[(63.931+3.069)/2, (63.931+3.069)/2],
-        mode="lines",
-        line=dict(color="white", width=1),
-        showlegend=False,
-    )
-
     # Add traces to the subplots
     fig.add_trace(prompthits_traces_xy, row=2, col=2)
-    fig.add_trace(cathode_line_1, row=2, col=2)
-    fig.add_trace(cathode_line_2, row=2, col=2)
     fig.add_trace(prompthits_traces_xz, row=1, col=1)
-    fig.add_trace(cathode_line_3, row=1, col=1)
-    fig.add_trace(cathode_line_4, row=1, col=1)
     fig.add_trace(prompthits_traces_yz, row=2, col=1)
     fig.add_trace(
         dummy_trace, row=2, col=2
@@ -1348,13 +1395,18 @@ def plot_2d_charge(data, evid):
         fig.add_trace(negative_traces_yz, row=2, col=1)
 
     # Add x and y axis labels to the subplots
+    det_bounds = data['geometry_info'].attrs['lar_detector_bounds']
+    # pad the plotting range with 3% on each side of the total range in xyz
+    x_pad = (det_bounds[:,0].max() - det_bounds[:,0].min()) * 0.03
+    y_pad = (det_bounds[:,1].max() - det_bounds[:,1].min()) * 0.03
+    z_pad = (det_bounds[:,2].max() - det_bounds[:,2].min()) * 0.03
     fig.update_xaxes(
         title_text="z [cm]",
         row=1,
         col=1,
         showgrid=False,
-        range=[-65, 65],
-        zeroline=True,
+        range=[det_bounds[:,2].min()-z_pad, det_bounds[:,2].max()+z_pad],
+        zeroline=False,
         constrain="domain",
     )
     fig.update_yaxes(
@@ -1362,8 +1414,8 @@ def plot_2d_charge(data, evid):
         row=1,
         col=1,
         showgrid=False,
-        range=[-65, 65],
-        zeroline=True,
+        range=[det_bounds[:,0].min()-x_pad, det_bounds[:,0].max()+x_pad],
+        zeroline=False,
         scaleanchor="x1",
         scaleratio=1,
     )
@@ -1373,8 +1425,8 @@ def plot_2d_charge(data, evid):
         row=2,
         col=1,
         showgrid=False,
-        range=[-65, 65],
-        zeroline=True,
+        range=[det_bounds[:,2].min()-z_pad, det_bounds[:,2].max()+z_pad],
+        zeroline=False,
         constrain="domain",
     )
     fig.update_yaxes(
@@ -1382,7 +1434,7 @@ def plot_2d_charge(data, evid):
         row=2,
         col=1,
         showgrid=False,
-        range=[-62, 62],
+        range=[det_bounds[:,1].min()-y_pad, det_bounds[:,1].max()+y_pad],
         zeroline=False,
         scaleanchor="x2",
         scaleratio=1,
@@ -1393,8 +1445,8 @@ def plot_2d_charge(data, evid):
         row=2,
         col=2,
         showgrid=False,
-        range=[-65, 65],
-        zeroline=True,
+        range=[det_bounds[:,0].min()-x_pad, det_bounds[:,0].max()+x_pad],
+        zeroline=False,
         constrain="domain",
     )
     fig.update_yaxes(
@@ -1402,7 +1454,7 @@ def plot_2d_charge(data, evid):
         row=2,
         col=2,
         showgrid=False,
-        range=[-62, 62],
+        range=[det_bounds[:,1].min()-y_pad, det_bounds[:,1].max()+y_pad],
         zeroline=False,
         scaleanchor="x3",
         scaleratio=1,
