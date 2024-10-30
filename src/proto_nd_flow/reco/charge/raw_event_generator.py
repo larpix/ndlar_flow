@@ -86,6 +86,7 @@ class RawEventGenerator(H5FlowGenerator):
     default_mc_tracks_dset_name = 'mc_truth/segments'
     default_mc_trajectories_dset_name = 'mc_truth/trajectories'
     default_mc_packet_fraction_dset_name = 'mc_truth/packet_fraction'
+    default_snowstorm_dset_name = 'mc_truth/snowstorm'
 
     raw_event_dtype = np.dtype([
         ('id', 'u8'),
@@ -115,6 +116,7 @@ class RawEventGenerator(H5FlowGenerator):
         self.mc_tracks_dset_name = params.get('mc_tracks_dset_name', self.default_mc_tracks_dset_name)
         self.mc_trajectories_dset_name = params.get('mc_trajectories_dset_name', self.default_mc_trajectories_dset_name)
         self.mc_packet_fraction_dset_name = params.get('mc_packet_fraction_dset_name', self.default_mc_packet_fraction_dset_name)
+        self.snowstorm_dset_name = params.get('snowstorm_dset_name', self.default_snowstorm_dset_name)
 
         # create event builder
         self.event_builder = globals()[self.event_builder_class](**self.event_builder_config)
@@ -153,6 +155,11 @@ class RawEventGenerator(H5FlowGenerator):
             self.mc_assn = self.input_fh['mc_packets_assn']
             self.mc_tracks = self.input_fh['segments']
             self.mc_trajectories = self.input_fh['trajectories']
+            try:
+                self.has_snowstorm = True
+                self.snowstorm = self.input_fh['snowstorm']
+            except:
+                self.has_snowstorm = False
             try:
                 self.mc_events = self.input_fh['mc_hdr']
             except:
@@ -223,6 +230,16 @@ class RawEventGenerator(H5FlowGenerator):
                     ceil(nstack / self.size * (self.rank + 1)))
                 self.data_manager.reserve_data(self.mc_stack_dset_name, stack_sl)
                 self.data_manager.write_data(self.mc_stack_dset_name, stack_sl, self.mc_stack[stack_sl])
+
+            if self.has_snowstorm:
+                # MC generator particle stack
+                self.data_manager.create_dset(self.snowstorm_dset_name, dtype=self.snowstorm.dtype)
+                nsnow = len(self.snowstorm)
+                snow_sl = slice(
+                    ceil(nsnow / self.size * self.rank),
+                    ceil(nsnow / self.size * (self.rank + 1)))
+                self.data_manager.reserve_data(self.snowstorm_dset_name, snow_sl)
+                self.data_manager.write_data(self.snowstorm_dset_name, snow_sl, self.snowstorm[snow_sl])
 
             # MC interaction summary info
             self.data_manager.create_dset(self.mc_events_dset_name, dtype=self.mc_events.dtype)
