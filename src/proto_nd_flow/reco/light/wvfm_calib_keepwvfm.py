@@ -44,6 +44,7 @@ class WaveformCalib_kpwvfm(H5FlowStage):
     #    return np.dtype([('ns', 'f8'), ('sample_idx', 'f4', (nadc, nchannels))])
 
     def __init__(self, **params):
+        print("We're in __init__")
         super(WaveformCalib_kpwvfm, self).__init__(**params)
 
         self.wvfm_dset_name = params.get('wvfm_dset_name')
@@ -73,6 +74,7 @@ class WaveformCalib_kpwvfm(H5FlowStage):
 
                 
     def init(self, source_name):
+        print("We're in init()")
         super(WaveformCalib_kpwvfm, self).init(source_name)
 
         # use appropriate gain data
