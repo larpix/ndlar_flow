@@ -7,7 +7,6 @@ requires:
  # - 'light/deconv/alignment'
 params:
   # input
-  #wvfm_dset_name: 'light/deconv'
   wvfm_dset_name: 'light/wvfm'
 
   # output
