@@ -82,15 +82,18 @@ class WaveformCalib_kpwvfm(H5FlowStage):
         else:
             self._load_gain_data(self.gain)
             self._load_thresh_data(self.thresh)
+        print('got mc or not')
 
         # save all config info
         gain = np.array([(int(adc), int(chan), self.gain[adc][chan])
                 for adc in self.gain for chan in self.gain[adc]],
                 dtype=np.dtype([('adc','i4'), ('chan','i4'), ('gain','f8')]))
+        print('got gain')
         
         thresh = np.array([(int(adc), int(chan), self.thresh[adc][chan])
                 for adc in self.thresh for chan in self.thresh[adc]],
                 dtype=np.dtype([('adc','i4'), ('chan','i4'), ('thresh','f8')]))
+        print('got thresholds')
         
         self.data_manager.set_attrs(self.cwvfm_dset_name,
                                     classname=self.classname,
@@ -100,11 +103,14 @@ class WaveformCalib_kpwvfm(H5FlowStage):
                                     gain=gain,
                                     thresh=thresh
                                     )
+        print('got first data manager')
 
         # then set up new datasets
         wvfm_dset = self.data_manager.get_dset(self.wvfm_dset_name)
+        print('got wvfm_dset data manager')
 
         self.cwvfm_dtype = self.cwvfm_dtype(*wvfm_dset.dtype['samples'].shape)
+        print('got cwvfm_dtype')
         self.data_manager.create_dset(self.cwvfm_dset_name, dtype=self.cwvfm_dtype)
         self.data_manager.create_ref(source_name, self.cwvfm_dset_name)
 
