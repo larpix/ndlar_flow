@@ -56,7 +56,9 @@ class Charge2LightAssociation(H5FlowStage):
         self.events_dset_name = None  # put off until init stage
 
         self.unix_ts_window = params.get('unix_ts_window', self.default_unix_ts_window)
+        print(f'unix_ts_window: {self.unix_ts_window}')
         self.ts_window = params.get('ts_window', self.default_ts_window)
+        print(f'ts_window: {self.ts_window}')
 
         self.total_charge_events = 0
         self.total_charge_triggers = 0
