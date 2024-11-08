@@ -98,8 +98,7 @@ class Geometry(H5FlowResource):
 
         self.path = params.get('path', self.default_path)
         self.network_agnostic = params.get('network_agnostic', self.default_network_agnostic)
-        # self.charge_only = params.get('charge_only', self.default_charge_only) 
-        self.charge_only = True
+        self.charge_only = params.get('charge_only', self.default_charge_only) 
         self.n_io_channels_per_tile = params.get('n_io_channels_per_tile', self.default_n_io_channels_per_tile)
         self.crs_geometry_files = params.get('crs_geometry_files', self.default_crs_geometry_file)
         self.crs_geometry_to_module = params.get('crs_geometry_to_module', self.default_crs_geometry_to_module)
