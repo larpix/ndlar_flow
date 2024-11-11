@@ -162,7 +162,10 @@ class WaveformDeconvolution(H5FlowStage):
                                     'Truncating to shorter length/appending zeros...')
                 new_impulse = np.zeros(wvfm_dset.dtype['samples'].shape[:-1] + (impulse_shape,), dtype=wvfm_dset.dtype['samples'].base)
                 valid_samples = min(impulse_shape, impulse.shape[-1])
-                new_impulse[..., :valid_samples] = impulse[..., :valid_samples]
+                ## HACK HACK HACK HACK HACK
+                ## We're currently bogusly using impulses from the 2x2, which has 8 ADCs instead of 4
+                # new_impulse[..., :valid_samples] = impulse[..., :valid_samples]
+                new_impulse[..., :valid_samples] = impulse[:4, :valid_samples]
                 self.signal_impulse['impulse'] = new_impulse
 
             if self.gaus_filter_width > 0:

@@ -549,7 +549,7 @@ class Geometry(H5FlowResource):
 
         # Return NaN if adc-channel does not exist
         if tpc == -1 or det == -1:
-            return [-1,-1,-1]
+            return [np.nan, np.nan, np.nan]
 
         det_type = self.lrs_geometry_yaml["adc_to_det_type"][adc]
 
@@ -573,8 +573,8 @@ class Geometry(H5FlowResource):
         tpc, side, vert_pos = self.get_sipm_rel_pos(adc,channel)
         tpc_channel = vert_pos + side*(len(self.lrs_geometry_yaml["sipm_center"])//2)
 
-        if np.isnan(tpc):
-            return [-1,-1,-1]
+        if np.isnan(tpc) or vert_pos == -1:
+            return [np.nan,np.nan,np.nan]
 
         # Get X pos
         x_pos = self.det_geometry_yaml["tpc_offsets"][tpc//2][0] + self.lrs_geometry_yaml["tpc_center_offset"][tpc][0] 
