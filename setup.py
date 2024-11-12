@@ -22,7 +22,7 @@ setuptools.setup(name='module0_flow',
                      'scikit-image',
                      'scikit-learn',
                      'h5flow>=0.2.0',
-                     'pylandau',
+                     # 'pylandau',
                      'dbscan1d',
                  ]
                  )
