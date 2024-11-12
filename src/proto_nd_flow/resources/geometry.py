@@ -579,8 +579,8 @@ class Geometry(H5FlowResource):
         # Get X pos
         x_pos = self.det_geometry_yaml["tpc_offsets"][tpc//2][0] + self.lrs_geometry_yaml["tpc_center_offset"][tpc][0] 
         if tpc % 2 == 0:
-            print('TPC:', tpc)
-            print('TPC Channel:', tpc_channel)
+            #print('TPC:', tpc)
+            #print('TPC Channel:', tpc_channel)
             x_pos += self.lrs_geometry_yaml["sipm_center"][tpc_channel][0]
         else:
             x_pos -= self.lrs_geometry_yaml["sipm_center"][tpc_channel][0]
@@ -619,8 +619,8 @@ class Geometry(H5FlowResource):
         adc_ids = np.array([v for v in self.lrs_geometry_yaml['ch_to_vert_bin'].keys()])
         max_chan_per_det = max([len(chan) for tpc in self.lrs_geometry_yaml['det_chan'].values() for chan in tpc.values()])
         chan_ids = np.unique(sum([chan for tpc in self.lrs_geometry_yaml['det_chan'].values() for chan in tpc.values()],[]))
-        print('Channel IDs:', chan_ids)
-        print('ADC IDs:', adc_ids)
+        #print('Channel IDs:', chan_ids)
+        #print('ADC IDs:', adc_ids)
 
         tpc_mod = np.full(tpc_ids.shape, -1, dtype=int)
         for i, mod in enumerate(self.det_geometry_yaml["module_to_tpcs"]):
