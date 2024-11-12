@@ -131,8 +131,8 @@ class Charge2LightAssociation(H5FlowStage):
         unix_ts_start = charge_unix_ts.min()
         unix_ts_end = charge_unix_ts.max()  
         
-        if self.light_unix_ts_start >= unix_ts_end + self.unix_ts_window or \
-           self.light_unix_ts_end <= unix_ts_start - self.unix_ts_window:
+        if float(self.light_unix_ts_start) >= float(unix_ts_end) + float(self.unix_ts_window) or \
+           float(self.light_unix_ts_end) <= float(unix_ts_start) - float(self.unix_ts_window):
             # no overlap, short circuit
             return np.empty((0, 2), dtype=int)
 
