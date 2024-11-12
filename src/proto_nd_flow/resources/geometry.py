@@ -551,17 +551,17 @@ class Geometry(H5FlowResource):
         if tpc == -1 or det == -1:
             return [-1,-1,-1]
 
-        det_type = self.lrs_geometry_yaml["adc_to_det_type"][adc]
+        #det_type = self.lrs_geometry_yaml["adc_to_det_type"][adc]
 
         # Get TPC side
         side = self.lrs_geometry_yaml["det_side"][det]
 
         # Get vertical position
         # Get Y pos
-        if det_type == 0:
-            vert_pos = self.lrs_geometry_yaml["ch_to_vert_bin"][0][channel]
-        else:
-            vert_pos = self.lrs_geometry_yaml["ch_to_vert_bin"][1][channel]
+        #if det_type == 0:
+        vert_pos = self.lrs_geometry_yaml["ch_to_vert_bin"][adc][channel]
+        #else:
+            #vert_pos = self.lrs_geometry_yaml["ch_to_vert_bin"][1][channel]
 
         return tpc, side, vert_pos
 
@@ -579,6 +579,8 @@ class Geometry(H5FlowResource):
         # Get X pos
         x_pos = self.det_geometry_yaml["tpc_offsets"][tpc//2][0] + self.lrs_geometry_yaml["tpc_center_offset"][tpc][0] 
         if tpc % 2 == 0:
+            print('TPC:', tpc)
+            print('TPC Channel:', tpc_channel)
             x_pos += self.lrs_geometry_yaml["sipm_center"][tpc_channel][0]
         else:
             x_pos -= self.lrs_geometry_yaml["sipm_center"][tpc_channel][0]
@@ -589,10 +591,10 @@ class Geometry(H5FlowResource):
 
         # Get Z pos
         z_pos = self.det_geometry_yaml["tpc_offsets"][tpc//2][2] + self.lrs_geometry_yaml["tpc_center_offset"][tpc][2]
-        if tpc % 2 == 0:
-            z_pos += self.lrs_geometry_yaml["sipm_center"][tpc_channel][2]
-        else:
-            z_pos -= self.lrs_geometry_yaml["sipm_center"][tpc_channel][2]
+        #if tpc % 2 == 0:
+        z_pos += self.lrs_geometry_yaml["sipm_center"][tpc_channel][2]
+        #else:
+        #    z_pos -= self.lrs_geometry_yaml["sipm_center"][tpc_channel][2]
 
         return x_pos, y_pos, z_pos
 
@@ -609,14 +611,16 @@ class Geometry(H5FlowResource):
             logging.warning(f'Loading geometry from {self.lrs_geometry_file}...')
 
         # enforce that light geometry formatting is as expected
-        # assert_compat_version(self.lrs_geometry_yaml['format_version'], '0.2.0')
+        assert_compat_version(self.lrs_geometry_yaml['format_version'], '0.4.0')
 
         mod_ids = np.array([v for v in self.det_geometry_yaml['module_to_tpcs'].keys()])
         tpc_ids = np.array([v for v in self.lrs_geometry_yaml['tpc_center_offset'].keys()])
         det_ids = np.array([v for v in self.lrs_geometry_yaml['det_center'].keys()])
-        adc_ids = np.array([v for v in self.lrs_geometry_yaml['adc_to_det_type'].keys()])
+        adc_ids = np.array([v for v in self.lrs_geometry_yaml['ch_to_vert_bin'].keys()])
         max_chan_per_det = max([len(chan) for tpc in self.lrs_geometry_yaml['det_chan'].values() for chan in tpc.values()])
         chan_ids = np.unique(sum([chan for tpc in self.lrs_geometry_yaml['det_chan'].values() for chan in tpc.values()],[]))
+        print('Channel IDs:', chan_ids)
+        print('ADC IDs:', adc_ids)
 
         tpc_mod = np.full(tpc_ids.shape, -1, dtype=int)
         for i, mod in enumerate(self.det_geometry_yaml["module_to_tpcs"]):
@@ -643,7 +647,7 @@ class Geometry(H5FlowResource):
                 det_chan[i,j,:len(self.lrs_geometry_yaml['det_chan'][tpc][det])] = self.lrs_geometry_yaml['det_chan'][tpc][det]
                 tpc_center = (np.array(self.lrs_geometry_yaml['tpc_center_offset'][tpc])
                     + np.array(self.det_geometry_yaml["tpc_offsets"][tpc_mod[i]]))
-                det_geom = self.lrs_geometry_yaml['geom'][self.lrs_geometry_yaml['det_geom'][det]]
+                det_geom = self.lrs_geometry_yaml['geom'][self.lrs_geometry_yaml['det_geom'][tpc][det]]
                 det_center = np.array(self.lrs_geometry_yaml['det_center'][det])
                 det_bounds[i,j,0] = tpc_center + det_center + np.array(det_geom['min'])
                 det_bounds[i,j,1] = tpc_center + det_center + np.array(det_geom['max'])
