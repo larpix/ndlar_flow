@@ -211,7 +211,7 @@ class WaveformHitFinder(H5FlowStage):
             peak_sample_index = np.clip(peaks[-1].reshape(-1, 1)
                                         + np.arange(-self.near_samples + 1, self.near_samples + 2), 0, self.nsamples - 1)
             peak_samples = wvfms[peaks[:-1] + (peak_sample_index,)]
-            peak_sum = np.sum(peak_samples.astype(int), axis=-1)
+            peak_sum = np.sum(peak_samples, axis=-1)
             # create hit spline
             peak_spline = scipy.interpolate.CubicSpline(
                 np.arange(-self.near_samples, self.near_samples + 1),
