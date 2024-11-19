@@ -35,7 +35,7 @@ class RockMuonSelection(H5FlowStage):
     ('z_boundaries', np.array([1300-64.3163,  1300-2.6837, 1300+2.6837, 1300+64.3163])), #cm
     
     
-    ('length_cut', 55), #cm
+    ('length_cut', 100), #cm
         
     ('MEVR', 0.974), #Miniumum explained variance ratio
 
@@ -44,14 +44,14 @@ class RockMuonSelection(H5FlowStage):
     ('segment_count', -1)
     ])
     
+
     #Datasets
     events_dset_name = 'charge/events'
     PromptHits_dset_name = 'charge/calib_prompt_hits'
-    FinalHits_dset_name = 'charge/calib_final_hits'
-     
+    
     #Datatype wanted
     
-    rock_muon_track_dtype = np.dtype([('event_id','i4'),('rock_muon_id', 'i4'),('length','f8'),('x_start', 'f8'),('y_start','f8'),('z_start', 'f8'),('x_end','f8'),('y_end', 'f8'),('z_end', 'f8'),('exp_var', 'f8'), ('theta_xz','f8'), ('theta_yz', 'f8')])
+    rock_muon_track_dtype = np.dtype([('event_id','i4'),('rock_muon_id', 'i4'),('length','f8'),('x_start', 'f8'),('y_start','f8'),('z_start', 'f8'),('x_end','f8'),('y_end', 'f8'),('z_end', 'f8'),('exp_var', 'f8'), ('theta_xz','f8'), ('theta_yz', 'f8'), ('theta_z','f8')])
    
     rock_muon_segments_dtype = np.dtype([
         ('rock_segment_id', 'i4'),
@@ -83,15 +83,15 @@ class RockMuonSelection(H5FlowStage):
         for key,val in self.defaults.items():
             setattr(self, key, params.get(key, val))
             
-        self.x_boundaries = params.get('x_boundaries',dict())
+        #self.x_boundaries = params.get('x_boundaries',dict())
         
-        self.y_boundaries = params.get('y_boundaries', dict())
+        #self.y_boundaries = params.get('y_boundaries', dict())
         
-        self.z_boundaries = params.get('z_boundaries', dict())
+        #self.z_boundaries = params.get('z_boundaries', dict())
         
         self.length_cut = params.get('length_cut', dict())
- 
-        self.MEVR = params.get('MEVR', dict())
+        
+        #self.MEVR = params.get('MEVR', dict())
             
     def init(self, source_name):
         
@@ -329,12 +329,11 @@ class RockMuonSelection(H5FlowStage):
     #@staticmethod
     def select_muon_track(self,hits,Min_max_detector_bounds):
             muon_hits = []
-            
+
             min_boundaries = np.flip(Min_max_detector_bounds[0]) #bounds are z,y,x and hits x,y,z, so bounds must be flipped
             max_boundaries = np.flip(Min_max_detector_bounds[1])
             
             faces_of_detector = np.concatenate((min_boundaries,max_boundaries))
-            
             MEVR = self.MEVR #Minimum explained variance ratio
 
             L_cut = self.length_cut #minimum track length requirement
@@ -389,8 +388,13 @@ class RockMuonSelection(H5FlowStage):
 
         # Convert the angle from radians to degrees
         theta_yz = np.degrees(theta_yz)
-        
-        return theta_xz, theta_yz
+        if direction_vector[2] > 0:
+            theta_z = np.degrees(np.arctan(np.sqrt(direction_vector[0]**2 + direction_vector[1]**2)/direction_vector[2]))
+        elif direction_vector[2] < 0:
+            theta_z = 180 + np.degrees(np.arctan(np.sqrt(direction_vector[0]**2 + direction_vector[1]**2)/direction_vector[2]))
+        else:
+            theta_z = 90
+        return theta_xz, theta_yz, theta_z
 
     #@staticmethod
     def TPC_separation(self, hits):
@@ -409,143 +413,126 @@ class RockMuonSelection(H5FlowStage):
     
     
     #@staticmethod
-    def grab_segment_info(self, direction_vector, segment, mean_point, positive_values, negative_values, hit_ref, values,i):
-        for hit in segment:
-            hit_ref.append([self.segment_count,hit['id']])
-
-        if (direction_vector[2] > 0 and values == negative_values) or (direction_vector[2] < 0 and values == positive_values):
-            direction_vector = -direction_vector
-
-        diff_in_z = abs(np.max(segment['z']) - np.min(segment['z']))
-         
-        dx = abs(diff_in_z/direction_vector[2])
-        #print(dx) 
-        start_of_segment = mean_point + (abs(i)-1)*direction_vector*dx
-        end_of_segment = mean_point + abs(i)*direction_vector*dx
-
-        x_start, y_start, z_start = start_of_segment[0], start_of_segment[1], start_of_segment[2]
-        x_end, y_end, z_end = end_of_segment[0], end_of_segment[1], end_of_segment[2]
-        x_mid, y_mid, z_mid = (x_start+x_end)/2 , (y_start+y_end)/2 , (z_start+z_end)/2
-
-        #dEdx
-
-        Energy_of_segment = sum(segment['E'])
-
-        # dQdx
-        Charge_of_segment = sum(segment['Q'])
-
-        #Drift time of segment
-        drift_time = np.mean(segment['t_drift'])
-    
-        return x_start, y_start, z_start, Energy_of_segment, x_end, y_end, z_end, Charge_of_segment, x_mid, y_mid, z_mid, drift_time, dx
-
-    #@staticmethod
-    def segments(self,muon_hits, est_length_of_track):
+    def segments(self,muon_hits):
         segment_info = []
-        
-        segment_to_track_ref = []
+
         hit_ref = []
-        
+        segment_to_track_ref = []
+
         track = muon_hits[0] #Makes sure hits go back to a (n,) shape instead of (1,n) shape
-        
-        #l_track, start_point_track, end_point_track = self.length(track)
-        ex_var, direction, mean_point = self.PCAs(track)
-        #print(sum(track['Q'])/l_track)
-        number_of_hits = len(track)
-        hit_density = number_of_hits/est_length_of_track
-        
+    
         tpc_hits = self.TPC_separation(track)
-        
-        same_pixel_pitch = [1,2,3,4,7,8]
+
+        given_scale = 2
 
         for hits in tpc_hits:
-            io_group_of_tpc = np.unique(hits['io_group'])
-            ''' 
-            if io_group_of_tpc in same_pixel_pitch:
-                scale = 0.4434
-            else:
-                scale = 0.3857
-            '''
-            scale = 2
             if len(hits) != 0:
-                tpc_var, tpc_direction, tpc_mean = self.PCAs(hits)
+                io_group_of_tpc = np.unique(hits['io_group'])
 
-                max_z = np.max(hits['z'])
-                min_z = np.min(hits['z'])
+                tpc_var, principal_component, tpc_mean = self.PCAs(hits)
+       
+                points = np.array([[hit['x'], hit['y'], hit['z']] for hit in hits])
+            
+                centered_points = points - tpc_mean
 
-                positive_steps = np.arange(1,1000)
-                negative_steps = np.arange(-1,-1000,-1)
-        
-                for steps in [positive_steps, negative_steps]:
-                    for i in steps:
-                        break_out = False
-                        if (direction[2] < 0 and i > 0) or (direction[2] > 0 and i < 0):
-                            direction_to_jump = - direction
+                projections = np.dot(centered_points, principal_component)
+                projected_hits = tpc_mean + np.outer(projections, principal_component)
+            
+                # Step 7: Find the minimum and maximum projections
+                t_min = np.min(projections)
+                t_max = np.max(projections)
+            
+                # Step 8: Compute the endpoints of the finite line
+                # Line endpoint 1: mean + t_min * principal_component
+                line_point_1 = tpc_mean + t_min * principal_component
+
+                # Line endpoint 2: mean + t_max * principal_component
+                line_point_2 = tpc_mean + t_max * principal_component
+            
+                line_defined_points = [line_point_1,line_point_2]
+
+                line_start = line_defined_points[np.argmax([line_point_1[2], line_point_2[2]])]
+                line_end = line_defined_points[np.argmin([line_point_1[2], line_point_2[2]])]
+            
+                #lets make segments
+                if principal_component[2] < 0:
+                    principal_component = -principal_component
+
+                initial_jump_size = given_scale
+                jump_vector = initial_jump_size * principal_component
+            
+                for i in range(1,1000):
+                    break_out = False
+                
+                    segment_start = line_start - (i-1)*jump_vector
+                    segment_end = segment_start - jump_vector
+                
+                    if segment_end[2] >= line_end[2]:
+                        seg_info = self.grab_segment_info(segment_end, segment_start, projected_hits, hits, hit_ref, segment_to_track_ref)
+
+                        if seg_info is not None:
+                            segment_info.append(seg_info)   
                     
-                        else:
-                            direction_to_jump = direction
-
-                        segment_start = tpc_mean + (abs(i)-1)*scale*direction_to_jump
-                        segment_end = tpc_mean + abs(i)*scale*direction_to_jump
-                        
-                        if (segment_end[2] > max_z) & (i > 0):
-                            jump_size = (max_z - segment_start[2])/direction_to_jump[2]
-                            segment_end = segment_start + jump_size*direction_to_jump
-                            break_out = True
-                             
-                        if (segment_end[2] < min_z) & (i < 0):
-                            jump_size = abs(min_z - segment_start[2])/abs(direction_to_jump[2])
-                            #print('inital end',segment_end[2])
-                            segment_end = segment_start + jump_size*direction_to_jump
-                            
-                            break_out = True
-                            #print('final end , start', segment_end[2], segment_start[2])
-                            #print('min z', min_z)
-                        #Grab segment info
-                        lower_bound = np.min([segment_start[2], segment_end[2]])
-                        upper_bound = np.max([segment_start[2], segment_end[2]])
-                
-                        mask = ma.masked_where((hits['z'] >= lower_bound) & (hits['z'] <= upper_bound), hits)
-                        indices_of_masked_values = np.ma.where(mask.mask)[0]
-                        hits_of_segment = hits[indices_of_masked_values]
-                        
-                        if len(hits_of_segment) == 0:
-                            continue
-
-                        hits = np.delete(hits, indices_of_masked_values)
-                
-                        x_start, y_start, z_start = segment_start[0], segment_start[1], segment_start[2]
-                        x_end, y_end, z_end = segment_end[0], segment_end[1], segment_end[2]
-                        x_mid, y_mid, z_mid = (x_start+x_end)/2, (y_start + y_end)/2, (z_start + z_end)/2
-                
-                        Energy_of_segment = sum(hits_of_segment['E'])
-                        Q_of_segment = sum(hits_of_segment['Q'])
-                        drift_time = np.mean(hits_of_segment['t_drift'])
-                        
-                        io_group_of_segment = np.unique(hits_of_segment['io_group'])[0]
-                        self.segment_count += 1
-
-                        dx = np.linalg.norm(segment_start-segment_end)
-                        segment_info.append([self.segment_count, x_start, y_start, z_start, Energy_of_segment, x_end, y_end, z_end, Q_of_segment, dx, x_mid, y_mid,z_mid, drift_time, io_group_of_segment])
                     
-                        for hitss in hits_of_segment:
-                            hit_ref.append([self.segment_count, hitss['id']])
+                    else:
+                        segment_end = line_end
+                        seg_info = self.grab_segment_info(segment_end, segment_start, projected_hits, hits, hit_ref, segment_to_track_ref)
+                        break_out = True
+                        if seg_info is not None:
+                            segment_info.append(seg_info)  
+                    
+                    
+                    if break_out == True:
+                        break
 
-                        segment_to_track_ref.append([self.track_count, self.segment_count])
-                        if break_out:
-                            #print('Now breaking', break_out)
-                            break
-      
+
         return segment_info, hit_ref, segment_to_track_ref
 
+    def grab_segment_info(self,segment_end, segment_start, projected_hits, hits, hit_ref, segment_to_track_ref):
+            min_bounds = [min([segment_end[i],segment_start[i]]) for i in range(0,3)]
+            max_bounds = [max([segment_end[i],segment_start[i]]) for i in range(0,3)]
+            condition = (projected_hits[:,2] >= min_bounds[2]) & (projected_hits[:,2] <= max_bounds[2])
+        
+            condition = (
+                    (projected_hits[:, 0] >= min_bounds[0]) & (projected_hits[:, 0] <= max_bounds[0]) &
+                    (projected_hits[:, 1] >= min_bounds[1]) & (projected_hits[:, 1] <= max_bounds[1]) &
+                    (projected_hits[:, 2] >= min_bounds[2]) & (projected_hits[:, 2] <= max_bounds[2])
+                )
+        
+            hits_of_segment = hits[condition]
+        
+            if len(hits_of_segment) != 0:
+                hits_positions = np.column_stack((hits_of_segment['x'],hits_of_segment['y'],hits_of_segment['z']))
+     
+                x_start, y_start, z_start = segment_start[0], segment_start[1], segment_start[2]
+                x_end, y_end, z_end = segment_end[0], segment_end[1], segment_end[2]
+                x_mid, y_mid, z_mid = (x_start+x_end)/2, (y_start + y_end)/2, (z_start + z_end)/2
+
+                Energy_of_segment = sum(hits_of_segment['E'])
+                Q_of_segment = sum(hits_of_segment['Q'])
+                drift_time = (max(hits_of_segment['t_drift'])+min(hits_of_segment['t_drift']))/2
+            
+                io_group_of_segment = np.unique(hits_of_segment['io_group'])[0]
+                self.segment_count += 1
+
+                
+                for hit in hits_of_segment:
+                    hit_ref.append([self.segment_count, hit['id']])
+                segment_to_track_ref.append([self.track_count, self.segment_count])
+                dx = np.linalg.norm(segment_start-segment_end)
+            
+                return [self.segment_count, x_start, y_start, z_start, Energy_of_segment, x_end, y_end, z_end, Q_of_segment, dx, x_mid, y_mid,z_mid, drift_time, io_group_of_segment]
+            else:
+                #print(f'No hits found for segment: start={segment_start}, end={segment_end}')
+                return None
 
     def run(self, source_name, source_slice, cache):
         
         super(RockMuonSelection, self).run(source_name, source_slice, cache)
                     
         event_id = np.r_[source_slice]
-        Min_max_detector_bounds = resources['Geometry'].lar_detector_bounds
-         
+        
+        Min_max_detector_bounds = resources['Geometry'].lar_detector_bounds 
         PromptHits_ev = cache[self.PromptHits_dset_name][0]
 
         PromptHits_ev_positions = np.column_stack((PromptHits_ev['x'], PromptHits_ev['y'], PromptHits_ev['z']))
@@ -571,14 +558,14 @@ class RockMuonSelection(H5FlowStage):
                     track_number = self.track_count
                     
                     #Get angle of track
-                    theta_xz, theta_yz = self.angle(direction_vector)
+                    theta_xz, theta_yz,theta_z = self.angle(direction_vector)
                     
                     #Fill track info
-                    track_info = [event_id,track_number,length_of_track, start_point[0],start_point[1],start_point[2], end_point[0],end_point[1],end_point[2], explained_var, theta_xz, theta_yz]
+                    track_info = [event_id,track_number,length_of_track, start_point[0],start_point[1],start_point[2], end_point[0],end_point[1],end_point[2], explained_var, theta_xz, theta_yz, theta_z]
                     
                     track_info = np.array([tuple(track_info)], dtype = self.rock_muon_track_dtype)
                     #Get segments
-                    segments_list, segment_hit_ref, segment_track_ref = self.segments(muon_track, length_of_track)
+                    segments_list, segment_hit_ref, segment_track_ref = self.segments(muon_track)
                     
                     #  1. reserve a new data region within the output dataset
                     rock_muon_slice = self.data_manager.reserve_data(self.rock_muon_hits_dset_name, 1)
