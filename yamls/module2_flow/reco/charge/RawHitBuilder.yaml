@@ -11,3 +11,5 @@ params:
 
   # output
   hits_dset_name: 'charge/raw_hits'
+
+  # configuration parameters
