@@ -102,7 +102,7 @@ class CalibHitBuilder(H5FlowStage):
         self.t0_dset_name = params.get('t0_dset_name')
         self.pedestal_file = params.get('pedestal_file', '')
         self.configuration_file = params.get('configuration_file', '')
-        self.pedestal_mv = params.get('pdestal_mv', 580.0)
+        self.pedestal_mv = params.get('pedestal_mv', 580.0)
         self.vref_mv = params.get('vref_mv', 1568.0)
         self.vcm_mv = params.get('vcm_mv', 478.1)
         self.adc_counts = params.get('adc_counts', 256)
