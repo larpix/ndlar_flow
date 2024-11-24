@@ -201,7 +201,7 @@ class LArEventDisplay:
         self.hits_region = f['charge/events/ref/charge/'+self.hits_dset+'/ref_region']
         self.hits_per_event = nhits_min
 
-         # Load light event and waveform datasets and light geometry info if using
+        # Load light event and waveform datasets and light geometry info if using
         if self.show_light:
             self.light_events = f['light/events/data']
             self.charge_light_ref = f['charge/events/ref/light/events/ref']
@@ -243,7 +243,6 @@ class LArEventDisplay:
         # Set up figure and subplots
         # NOTE: This is very different if Mx2 is shown
         if self.show_mx2: 
-            
             # Setting figure WITH Mx2
             self.fig = plt.figure(constrained_layout=False, figsize=(15, 15))
             self.axes_mosaic = [["ax_bd", "ax_bd",  "ax_subexp_logo", "ax_subexp_logo", "ax_bdv", "ax_bdv", "ax_bdv", "ax_bdv"],\
@@ -287,13 +286,11 @@ class LArEventDisplay:
             ax_dune_logo = self.fig.add_axes([0.59, 0.942, 0.37, 0.057])
 
         else:
-
             # Setting figure WITHOUT Mx2
             self.fig = plt.figure(constrained_layout=False, figsize=(15, 8))
             self.axes_mosaic = [["ax_bd", "ax_subexp_logo", "ax_bdv", "ax_bdv"],["ax_bv", "ax_dv", "ax_bdv", "ax_bdv"],]
             self.axes_dict = self.fig.subplot_mosaic(self.axes_mosaic, \
                                                     per_subplot_kw={"ax_bdv": {"projection": "3d"}})
-            
             # Setting colorbar axes (if showing) WITHOUT Mx2
             if self.show_colorbars and not self.show_light:
                 cbar_ax = self.fig.add_axes([0.145, 0.001, 0.675, 0.025])
@@ -504,8 +501,8 @@ class LArEventDisplay:
 
         # Get event ID information
         ev_idx = np.where(self.events['id'] == ev_id)[0][0]
-        print("Number of available events:", len(self.events))
-        print("For fast-forwarding purposes, here is every 10th event number in your sample:", [ev for ev in self.events['id'][9::10]])
+        #print("Number of available events:", len(self.events))
+        #print("For fast-forwarding purposes, here is every 10th event number in your sample:", [ev for ev in self.events['id'][9::10]])
 
         # Get event general information
         event = self.events[ev_idx]

@@ -14,8 +14,6 @@ from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.gridspec import GridSpec
 import sys
 import os
-import sys
-sys.path.append('/global/cfs/cdirs/dune/users/ehinkle/nd_prototypes_ana/2x2_sim/run-ndlar-flow/ndlar_flow/event_display/LAr_evd/')
 from lar2x2_evd import *
 from collections import Counter
 from multiprocessing import Pool, Value
@@ -28,9 +26,9 @@ from PyPDF2 import PdfMerger
 evd = None
 
 # Function to initialize the global LArEventDisplay object
-def init_evd(filedir, filename, show_light, beam_only):
+def init_evd(filedir, filename, show_light, beam_only, runsdb):
     global evd
-    evd = LArEventDisplay(filedir=filedir, filename=filename, nhits_min=0, ntrigs=0, show_light=show_light, show_colorbars=True, beam_only=beam_only)
+    evd = LArEventDisplay(filedir=filedir, filename=filename, runsdb=runsdb, nhits_min=0, ntrigs=0, show_light=show_light, show_colorbars=True, beam_only=beam_only)
 
 
 # Function to process a single event
@@ -63,7 +61,7 @@ def process_event(ev_id):
 
 
 # Make set of PNGs for every event in file
-def main(file, output_dir=None, beam_only=False, show_light=False, n_evts=None):
+def main(file, output_dir=None, beam_only=False, show_light=False, n_evts=None, runsdb=None):
 
     # Get file name and directory from input
     f = file.split('/')[-1]
@@ -87,7 +85,7 @@ def main(file, output_dir=None, beam_only=False, show_light=False, n_evts=None):
         pdf_file_modifiers += '_charge_only'
 
     # Initialize the LArEventDisplay object (global variable)
-    init_evd(d, f, show_light, beam_only)
+    init_evd(d, f, show_light, beam_only, runsdb)
     event_ids = evd.events['id']
 
     # Go through all events in file
@@ -126,7 +124,7 @@ def main(file, output_dir=None, beam_only=False, show_light=False, n_evts=None):
         args = [ev_id for ev_id in batch_ids]
 
         # Create a pool of workers to process events in parallel
-        with Pool(initializer=init_evd, initargs=(d, f, show_light, beam_only), processes=cpus_to_use) as pool:
+        with Pool(initializer=init_evd, initargs=(d, f, show_light, beam_only, runsdb), processes=cpus_to_use) as pool:
             output_imgs = pool.map(process_event, args)
 
         # Combine all PNGs into a single PDF
@@ -153,7 +151,8 @@ def main(file, output_dir=None, beam_only=False, show_light=False, n_evts=None):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-f','--file', default=None,type=str,help='''String of input file and location''')
-    parser.add_argument('-od','--output_dir', default=None,type=str,help='''String of output file directory location. If no directory is given, current directory is used.''')
+    parser.add_argument('-od','--output_dir', default='./',type=str,help='''String of output file directory location. If no directory is given, current directory is used.''')
+    parser.add_argument('-db','--runsdb', default='sqlite:////global/cfs/cdirs/dune/www/data/2x2/DB/RunsDB/releases/mx2x2runs_v0.1_alpha3.sqlite',type=str,help='''Run database location.''')
     parser.add_argument('-b','--beam_only', default=False, type=bool, help='''Bool telling whether or not to only save beam events.''')
     parser.add_argument('-l','--show_light', default=False, type=bool, help='''Bool telling whether or not to show light.''')
     parser.add_argument('-n','--n_evts', default=None, type=int, help='''Number of events to plot.''')
