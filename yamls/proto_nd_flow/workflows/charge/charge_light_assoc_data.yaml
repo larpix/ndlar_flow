@@ -7,7 +7,7 @@ flow:
 
 
 resources:
-  - !include yamls/proto_nd_flow/resources/RunData.yaml
+  - !include yamls/proto_nd_flow/resources/RunDataData.yaml
 
 
 charge_light_associator:
