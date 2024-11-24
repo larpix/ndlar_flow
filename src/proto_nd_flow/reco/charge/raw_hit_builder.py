@@ -8,9 +8,8 @@ from h5flow.core import H5FlowStage, resources
 
 class RawHitBuilder(H5FlowStage):
     '''
-        Converts larpix data packets into hits - assigns geometric properties,
-        filters by packet type, and performs the conversion from ADC -> mV above
-        pedestal.
+        Converts larpix data packets into raw hits - assigns pixel coordinates,
+        timestamps, and ADC values, and filters by packet type.
 
         Parameters:
          - ``hits_dset_name`` : ``str``, required, output dataset path
