@@ -436,6 +436,9 @@ class ExtTrigRawEventBuilder(RawEventBuilder):
         )    
     
     def build_events(self, packets, unix_ts, mc_assn=None):
+        if len(packets) == 0:
+            return ([], []) if mc_assn is None else ([], [], [])
+
         rollover = np.zeros((len(packets),), dtype='i8')
         for io_group in np.unique(packets['io_group']):
             mask = (packets['io_group'] == io_group) & (packets['packet_type'] == 6) & (packets['trigger_type'] == 83)
@@ -501,13 +504,13 @@ class ExtTrigRawEventBuilder(RawEventBuilder):
         off_beam_builder = SymmetricWindowRawEventBuilder( **off_beam_config )
         
         off_beam_events, off_beam_event_unix_ts, off_beam_event_mc_assn = [], [], []
-        this_mc_assn = mc_assn[~used_mask] if mc_assn else None
+        this_mc_assn = mc_assn[~used_mask] if (mc_assn is not None) else None
         (off_beam_events_list, off_beam_ts) = off_beam_builder.build_events(packets[~used_mask], unix_ts[~used_mask], this_mc_assn, ts[~used_mask], return_ts=True)
         off_beam_events_list=list(off_beam_events_list)
         if off_beam_events_list:
             off_beam_events = list(off_beam_events_list[0])
             off_beam_event_unix_ts = list(off_beam_events_list[1])
-            if mc_assn:
+            if mc_assn is not None:
                 off_beam_event_mc_assn = list(off_beam_events_list[2])
 
         if self.VALIDATE_HACK:

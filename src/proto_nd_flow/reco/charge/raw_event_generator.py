@@ -178,6 +178,9 @@ class RawEventGenerator(H5FlowGenerator):
             else:
                 self.traj_id_name = 'traj_id'
                 warnings.warn("Using 'traj_id' instead of 'file_traj_id'. 'traj_id' is not unique across the file and will cause reference issues.")
+        else:
+            self.is_mc_neutrino = False
+
 
         # initialize data objects
         self.data_manager.create_dset(self.raw_event_dset_name, dtype=self.raw_event_dtype)
