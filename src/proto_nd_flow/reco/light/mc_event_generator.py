@@ -29,6 +29,7 @@ class LightEventGeneratorMC(H5FlowGenerator):
          - ``busy_channel``: ``list`` of ``int``, channel used for busy signal on each ADC (if relevant)
          - ``busy_delay``: ``int``, number of ticks prior to busy signal for each trigger
          - ``disabled_channels``: ``list`` of ``(adc_idx, channel_idx)``, channels to zero out (optional)
+         - ``baseline_offset``: ``int``, offset to add to all waveforms
 
         Requires RunData resource in workflow.
 
@@ -50,6 +51,7 @@ class LightEventGeneratorMC(H5FlowGenerator):
                     adc_sn:
                      - 0
                      - 1
+                    baseline_offset: -28000
                     channel_map:
                      - [0,1,2,3,4,5,6,7,8,9,
                         10,11,12,13,14,15,16,17,18,19,20,
@@ -84,7 +86,8 @@ class LightEventGeneratorMC(H5FlowGenerator):
         n_sipms_per_module= 96,
         busy_delay=123,
         busy_ampl=20e3,
-        chunk_size=32
+        chunk_size=32,
+        baseline_offset=0
         )
 
 
@@ -94,6 +97,7 @@ class LightEventGeneratorMC(H5FlowGenerator):
         # set up parameters
         for key,val in self.defaults.items():
             setattr(self, key, params.get(key, val))
+        print("baseline_offset: ",self.baseline_offset)
 
         self.adc_sn = np.array(params['adc_sn'])
         self.channel_map = np.array(params['channel_map'])
@@ -174,6 +178,7 @@ class LightEventGeneratorMC(H5FlowGenerator):
                                     chunk_size=self.chunk_size,
                                     busy_delay=self.busy_delay,
                                     adc_sn=self.adc_sn,
+                                    baseline_offset=self.baseline_offset,
                                     channel_map=self.channel_map,
                                     #busy_channel=self.busy_channel,
                                     disabled_channels=self.disabled_channels,
@@ -251,10 +256,13 @@ class LightEventGeneratorMC(H5FlowGenerator):
 
         # mock busy signal
         # remapped_wvfms[:, np.r_[range(self.n_adcs)], self.busy_channel, self.busy_delay:] = self.busy_ampl
+        
+        # add baseline offset
+        remapped_wvfms += self.baseline_offset
 
         # zero out disabled channels
-        if self.disabled_channels:
-            remapped_wvfms[:, self.disabled_channels[...,0], self.disabled_channels[...,1]] = 0.
+        if self.disabled_channels.shape[0]:
+            remapped_wvfms[:, :, self.disabled_channels, :] = 0.
 
         # clip to ensure within datatype bounds
         remapped_wvfms = remapped_wvfms.clip(np.iinfo(self.wvfm_dtype['samples'].base).min, np.iinfo(self.wvfm_dtype['samples'].base).max)
