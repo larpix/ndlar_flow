@@ -9,9 +9,9 @@ import proto_nd_flow.util.units as units
 
 class CalibHitBuilder(H5FlowStage):
     '''
-        Converts larpix data packets into hits - assigns geometric properties,
-        filters by packet type, and performs the conversion from ADC -> mV above
-        pedestal.
+        Converts larpix data packets into calibrated hits - assigns geometric
+        properties, filters by packet type, and performs the conversion from ADC
+        -> mV above pedestal.
 
         The external data files used for ``pedestal_file`` and
         ``configuration_file`` are searched for in the current working
@@ -68,8 +68,8 @@ class CalibHitBuilder(H5FlowStage):
 
     #: ASIC ADC configuration lookup table
     configuration = defaultdict(lambda: dict(
-        vref_mv=1300,
-        vcm_mv=288
+        vref_mv=1568.0,
+        vcm_mv=478.1
     ))
 
     #: pixel pedestal value
@@ -212,10 +212,10 @@ class CalibHitBuilder(H5FlowStage):
             zy = resources['Geometry'].pixel_coordinates_2D[packets_arr['io_group'],
                                                 packets_arr['io_channel'], packets_arr['chip_id'], packets_arr['channel_id']]
             tile_id = resources['Geometry'].tile_id[packets_arr['io_group'],packets_arr['io_channel']]
-            hit_uniqueid = (((packets_arr['io_group'].astype(int)) * 100000
-                             + packets_arr['io_channel'].astype(int)) * 1000
-                            + packets_arr['chip_id'].astype(int)) * 64 \
-                + packets_arr['channel_id'].astype(int)
+            hit_uniqueid = (packets_arr['io_group'].astype(int)*1000_000_000
+                            + tile_id.astype(int)*100_000
+                            + packets_arr['chip_id'].astype(int)*100
+                            + packets_arr['channel_id'].astype(int))
             hit_uniqueid_str = hit_uniqueid.astype(str)
             if self.configuration_file != '':
                 vref = np.array(
