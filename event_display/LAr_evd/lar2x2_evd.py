@@ -118,8 +118,12 @@ class LArEventDisplay:
         self.filedir = filedir
         self.filename = filename
         self.filepath_mx2 = filepath_mx2
-        self.runsdb = runsdb
-        self.all_subruns_db = pd.read_sql_table('All_global_subruns', runsdb)
+        try:
+            self.runsdb = runsdb
+            self.all_subruns_db = pd.read_sql_table('All_global_subruns', runsdb)
+        except:
+            self.runsdb = None
+            self.all_subruns_db = None
         self.show_light = show_light
         self.show_event_light = show_light
         self.show_colorbars = show_colorbars
@@ -197,7 +201,7 @@ class LArEventDisplay:
         self.hits_region = f['charge/events/ref/charge/'+self.hits_dset+'/ref_region']
         self.hits_per_event = nhits_min
 
-         # Load light event and waveform datasets and light geometry info if using
+        # Load light event and waveform datasets and light geometry info if using
         if self.show_light:
             self.light_events = f['light/events/data']
             self.charge_light_ref = f['charge/events/ref/light/events/ref']
@@ -239,7 +243,6 @@ class LArEventDisplay:
         # Set up figure and subplots
         # NOTE: This is very different if Mx2 is shown
         if self.show_mx2: 
-            
             # Setting figure WITH Mx2
             self.fig = plt.figure(constrained_layout=False, figsize=(15, 15))
             self.axes_mosaic = [["ax_bd", "ax_bd",  "ax_subexp_logo", "ax_subexp_logo", "ax_bdv", "ax_bdv", "ax_bdv", "ax_bdv"],\
@@ -283,13 +286,11 @@ class LArEventDisplay:
             ax_dune_logo = self.fig.add_axes([0.59, 0.942, 0.37, 0.057])
 
         else:
-
             # Setting figure WITHOUT Mx2
             self.fig = plt.figure(constrained_layout=False, figsize=(15, 8))
             self.axes_mosaic = [["ax_bd", "ax_subexp_logo", "ax_bdv", "ax_bdv"],["ax_bv", "ax_dv", "ax_bdv", "ax_bdv"],]
             self.axes_dict = self.fig.subplot_mosaic(self.axes_mosaic, \
                                                     per_subplot_kw={"ax_bdv": {"projection": "3d"}})
-            
             # Setting colorbar axes (if showing) WITHOUT Mx2
             if self.show_colorbars and not self.show_light:
                 cbar_ax = self.fig.add_axes([0.145, 0.001, 0.675, 0.025])
@@ -500,13 +501,13 @@ class LArEventDisplay:
 
         # Get event ID information
         ev_idx = np.where(self.events['id'] == ev_id)[0][0]
-        print("Number of available events:", len(self.events))
-        print("For fast-forwarding purposes, here is every 10th event number in your sample:", [ev for ev in self.events['id'][9::10]])
+        #print("Number of available events:", len(self.events))
+        #print("For fast-forwarding purposes, here is every 10th event number in your sample:", [ev for ev in self.events['id'][9::10]])
 
         # Get event general information
         event = self.events[ev_idx]
-        event_datetime = datetime.utcfromtimestamp(
-                event['unix_ts']).strftime('%Y-%m-%d %H:%M:%S')
+        # Use event unix TS in seconds for hand-scanning campaign
+        event_datetime = str(event['unix_ts']) #datetime.utcfromtimestamp(event['unix_ts']).strftime('%Y-%m-%d %H:%M:%S')
         if not self.is_mc:
             try:
                 event_run_info = self.all_subruns_db[(self.all_subruns_db['start_time_unix'] <= event['unix_ts']) &
@@ -547,12 +548,17 @@ class LArEventDisplay:
         #print("External trigger information:", exttrigs['iogroup'], exttrigs['ts'], exttrigs['ts_raw'])
 
         # Prepare color map for charge
-        min_charge = min(hits['Q'])
-        if max(hits['Q']) > min_charge:
-            max_charge = max(hits['Q'])
-        else: 
-            max_charge = min_charge + 1
-        charge_norm = mpl.colors.Normalize(vmin=min_charge,vmax=max_charge)
+        if len(hits) > 0:
+            min_charge = min(hits['Q'])
+            if max(hits['Q']) > min_charge:
+                max_charge = max(hits['Q'])
+            else: 
+                max_charge = min_charge + 1
+        else:
+            min_charge = 0
+            max_charge = 1
+        # Set charge norm to hardcoded values for hand-scanning campaign
+        charge_norm = mpl.colors.Normalize(vmin=-30,vmax=120) #mpl.colors.Normalize(vmin=min_charge,vmax=max_charge)
         cmap = cmr.get_sub_cmap('cmr.torch_r', 0.13,0.95)
         cmap_zero = cmr.get_sub_cmap('cmr.torch_r', 0.03, 0.95)
         mcharge = plt.cm.ScalarMappable(norm=charge_norm, cmap=cmap)
@@ -663,7 +669,7 @@ class LArEventDisplay:
         self.fig.text(s=" Run %i, Subrun %i" %
                           (event_run, event_subrun), x=0.05, y=title_y,\
                             size=26, weight='bold', ha='left', linespacing=1)
-        self.fig.text(x=0.051, y=subtitle_y, s=" Event %i: %s UTC" % (ev_id, event_datetime),\
+        self.fig.text(x=0.051, y=subtitle_y, s=" Event %i: %s UTC, nHits: %i" % (ev_id, event_datetime, self.hits_per_event),\
                             size=22, ha='left', style='italic', linespacing=1)
         self.fig.text(watermark_x, watermark_y, data_sim_watermark, fontsize=watermark_fs, color='black', alpha=0.15,
                       ha='right', va='center', weight='bold', style='italic', rotation=0)# zorder=-1)
@@ -696,9 +702,9 @@ class LArEventDisplay:
         self.ax_dune_logo.imshow(self.dune_logo_png)
 
         # Set axes for 3D canvas (Beam, Drift, Vertical)
-        self.ax_bdv.set_xlabel('\nBeam Axis [cm]', fontsize=14, weight='bold', linespacing=2) #z
-        self.ax_bdv.set_ylabel('\nDrift Axis [cm]', fontsize=14, weight='bold', linespacing=2) #x
-        self.ax_bdv.set_zlabel('\nVertical Axis [cm]', fontsize=14, weight='bold', linespacing=2) #y
+        self.ax_bdv.set_xlabel('\nBeam Axis (z) [cm]', fontsize=14, weight='bold', linespacing=2) #z
+        self.ax_bdv.set_ylabel('\nDrift Axis (x) [cm]', fontsize=14, weight='bold', linespacing=2) #x
+        self.ax_bdv.set_zlabel('\nVertical Axis (y) [cm]', fontsize=14, weight='bold', linespacing=2) #y
         self.ax_bdv.set_xlim(self.geometry.attrs['lar_detector_bounds'][0][2], \
             self.geometry.attrs['lar_detector_bounds'][1][2])
         self.ax_bdv.set_ylim(self.geometry.attrs['lar_detector_bounds'][0][0], \
@@ -720,7 +726,7 @@ class LArEventDisplay:
         #       maximum and minimum boundary values of the longest detector axis (beam, Z)
         # Set axes for Beam vs Drift (ZX) canvas
         #self.ax_bd.set_xlabel('Beam Axis [cm]', fontsize=14) # Currently not showing x-axis label bc overlap with lower subplot
-        self.ax_bd.set_ylabel('Drift Axis [cm]', fontsize=14, weight='bold')
+        self.ax_bd.set_ylabel('Drift Axis (x) [cm]', fontsize=14, weight='bold')
         self.ax_bd.set_ylim(self.geometry.attrs['lar_detector_bounds'][0][2]-3, \
             self.geometry.attrs['lar_detector_bounds'][1][2]+3)
         self.ax_bd.set_xlim(self.geometry.attrs['lar_detector_bounds'][0][2]-3,\
@@ -730,7 +736,7 @@ class LArEventDisplay:
         self.ax_bd.set_yticks(np.arange(-60,61,20))
 
         # Set axes for Beam vs Vertical (ZY) canvas
-        self.ax_bv.set_xlabel('Beam Axis [cm]', fontsize=14, weight='bold')
+        self.ax_bv.set_xlabel('Beam Axis (z) [cm]', fontsize=14, weight='bold')
         self.ax_bv.set_ylabel('Vertical Axis [cm]', fontsize=14, weight='bold')
         self.ax_bv.set_xlim(self.geometry.attrs['lar_detector_bounds'][0][2]-3,\
             self.geometry.attrs['lar_detector_bounds'][1][2]+3)
@@ -741,7 +747,7 @@ class LArEventDisplay:
         self.ax_bv.set_yticks(np.arange(-60,61,20))
 
         # Set axes for Drift vs Vertical (XY) canvas
-        self.ax_dv.set_xlabel('Drift Axis [cm]', fontsize=14, weight='bold')
+        self.ax_dv.set_xlabel('Drift Axis (x) [cm]', fontsize=14, weight='bold')
         #self.ax_dv.set_ylabel('Vertical Axis [cm]', fontsize=14) # Currently not showing y-axis label bc overlap with left subplot
         self.ax_dv.set_xlim(self.geometry.attrs['lar_detector_bounds'][0][2]-3,\
             self.geometry.attrs['lar_detector_bounds'][1][2]+3)
