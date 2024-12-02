@@ -21,11 +21,8 @@ def unique_channel_id(d):
 def unique_to_channel_id(unique):
     return (unique % 100)
 
-##
-
 ## Filter classes
 ##
-
 class low_current_filter:
     '''
         Filters out hits with low indunced current. Specify threshold to remove hitsnwith Q<threshold
@@ -104,7 +101,7 @@ class correlated_post_trigger_filter:
                 if np.sum(m)<1: continue
                 
                 lrs[m] = self.get_lr(n_chip_hits, np.array([ts, qs, sumqs]).transpose(), cc, chan_nhit)
-    
+   
         return lrs > self.lrs_cut
 
     def get_lr(self, n_chip_hits, X, chan, chan_nhit):
@@ -157,7 +154,6 @@ class correlated_post_trigger_filter:
             y_cpt = np.exp(kdes_cpth[3].score_samples(X))+1e-5
             return nhit_lr*y_cpt/y
 
-
 class hot_pixel_filter:
 
     def __init__(self, max_n_hits=35):
@@ -179,12 +175,10 @@ class hot_pixel_filter:
 
             mask = mask | np.dot(event_mask,  chan_mask)
 
-       
-
         return mask
+
 #Main class defintion
 ##
-
 class CalibNoiseFilter(H5FlowStage):
     '''
         Noise Filter for charge readout.
@@ -194,14 +188,15 @@ class CalibNoiseFilter(H5FlowStage):
         events_dset_name = 'charge/events',
         hits_name = 'charge/calib_prompt_hits',
         hit_charge_name = 'charge/calib_prompt_hits',
-        merged_name = 'charge/hits/calib_merged_hits',
+        calib_hits_dset_name = 'charge/hits/calib_final_hits',
+        mc_hit_frac_dset_name = 'mc_truth/calib_final_hit_backtrack',
         low_current_filter__threshold=6.0,
         hot_pixel_filter__max_n_hits=35,
         filter_function_names = ['hot_pixel_filter']
         )
     valid_filter_functions = ['low_current_filter', 'correlated_post_trigger_filter', 'hot_pixel_filter']
 
-    merged_dtype = CalibHitBuilder.calib_hits_dtype
+    hits_dtype = CalibHitBuilder.calib_hits_dtype
 
     def __init__(self, **params):
         super(CalibNoiseFilter, self).__init__(**params)
@@ -212,11 +207,6 @@ class CalibNoiseFilter(H5FlowStage):
 
     def init(self, source_name):
         super(CalibNoiseFilter, self).init(source_name)
-        self.data_manager.create_dset(self.merged_name, dtype=self.merged_dtype)
-        self.data_manager.create_ref(self.hits_name, self.merged_name)
-        self.data_manager.create_ref(source_name, self.merged_name)
-        self.data_manager.create_ref(self.events_dset_name, self.merged_name)
-        
         self.init_filter_functions()
 
     def init_filter_functions(self):
@@ -231,12 +221,12 @@ class CalibNoiseFilter(H5FlowStage):
         return hits['Q']>np.inf
 
     #@staticmethod
-    def filter_hits(self, hits, seg_fracs):
+    def filter_hits(self, hits, back_track):
         '''
 
         :param hits: original hits array, shape: (N,M)
 
-        :param fracs: fractional contributions of true segments per packet
+        :param back_track: backtrack information per hit
 
         :returns: new hit array, shape: (N,m), new hit charge array, shape: (N,m), and an index array with shape (L,2), [:,0] being the index into the original hit array and [:,1] being the flattened index into the compressed new array
 
@@ -247,13 +237,14 @@ class CalibNoiseFilter(H5FlowStage):
         old_ids = hits.data['id'].copy()[...,np.newaxis]
         old_id_mask = hits.mask['id'].copy()[...,np.newaxis]
         filter_mask = self.default_filter_function(new_hits)
+
         for f in self.filter_functions:
             filter_mask = filter_mask | f.filter(hits)
 
         mask = filter_mask | mask
 
         new_ids = old_ids[~mask]
-        back_track = None
+
         return (
             ma.array(new_hits, mask=mask),
             np.c_[new_ids, np.array(range(new_ids.shape[0]))],
@@ -263,30 +254,68 @@ class CalibNoiseFilter(H5FlowStage):
     def run(self, source_name, source_slice, cache):
         super(CalibNoiseFilter, self).run(source_name, source_slice, cache)
 
+        # set up new datasets
+        if resources['RunData'].is_mc:
+            hits_frac_bt = cache['hits_frac_backtrack']
+        has_mc_truth = resources['RunData'].is_mc and (hits_frac_bt is not None)
+
+        self.data_manager.create_dset(self.calib_hits_dset_name, dtype=self.hits_dtype)
+        if has_mc_truth:
+            self.data_manager.create_dset(self.mc_hit_frac_dset_name, dtype=hits_frac_bt.dtype)
+        self.data_manager.create_ref(self.hits_name, self.calib_hits_dset_name)
+        self.data_manager.create_ref(source_name, self.calib_hits_dset_name)
+        self.data_manager.create_ref(self.events_dset_name, self.calib_hits_dset_name)
+        if has_mc_truth:
+            self.data_manager.create_ref(self.calib_hits_dset_name, self.mc_hit_frac_dset_name)
+
         event_id = np.r_[source_slice]
-        packet_frac_bt = cache['packet_frac_backtrack']
+        hits_frac_bt = np.squeeze(cache['hits_frac_backtrack'], axis=-1) # additional dimension from the reference
         hits = cache[self.hits_name]
 
-        merged, ref, back_track = self.filter_hits(hits, seg_fracs=packet_frac_bt)
+        hits, hits_ref, back_track = self.filter_hits(hits, back_track=hits_frac_bt)
 
-        merged_mask = merged.mask['id']
+        hits_mask = hits.mask['id']
 
-        # first write the new merged hits to the file
-        new_nhit = int((~merged_mask).sum())
-        #print('hits after filter:', merged.shape, new_nhit)
+        # first write the new hits hits to the file
+        new_nhit = int((~hits_mask).sum())
 
-        merge_slice = self.data_manager.reserve_data(self.merged_name, new_nhit)
-        merge_idx = np.r_[merge_slice].astype(merged.dtype['id'])
-        if new_nhit > 0:
-            ref[:,1] += merge_idx[0] # offset references based on reserved region in output file
-            np.place(merged['id'], ~merged_mask, merge_idx)
+        hits_slice = self.data_manager.reserve_data(self.calib_hits_dset_name, new_nhit)
+        if has_mc_truth:
+            hit_bt_slice = self.data_manager.reserve_data(self.mc_hit_frac_dset_name, new_nhit)
 
-        self.data_manager.write_data(self.merged_name, merge_idx, merged[~merged_mask])
+        hits_idx = np.r_[hits_slice].astype(hits.dtype['id'])
+        #FIXME Do we still need to renumber the hit id?
+        #if new_nhit > 0:
+        #    ref[:,1] += hits_idx[0] # offset references based on reserved region in output file
+        #    np.place(hits['id'], ~hits_mask, hits_idx)
 
+        new_hits = hits[~hits_mask]
+        new_hits_frac_bt = back_track[~hits_mask]
+
+        # write dataset and ref
+        self.data_manager.write_data(self.calib_hits_dset_name, hits_slice, new_hits)
+
+        if has_mc_truth:
+            # make sure hitss and hits backtracking match in numbers
+            if new_hits.shape[0] == new_hits_frac_bt.shape[0]:
+                self.data_manager.write_data(self.mc_hit_frac_dset_name, hit_bt_slice, new_hits_frac_bt)
+            else:
+                raise Exception("The data hits and backtracking info do not match in size.")
+
+        # prompt hit -> final hit
         # sort based on the ID of the prompt hit, to make analysis more convenient
-        ref = ref[np.argsort(ref[:, 0])]
-        self.data_manager.write_ref(self.hits_name, self.merged_name, ref)
+        hits_ref = hits_ref[np.argsort(hits_ref[:, 0])]
+        self.data_manager.write_ref(self.hits_name, self.calib_hits_dset_name, hits_ref)
 
-        ev_ref = np.c_[(np.indices(merged_mask.shape)[0] + source_slice.start)[~merged_mask], merge_idx]
-        self.data_manager.write_ref(source_name, self.merged_name, ev_ref)
-        self.data_manager.write_ref(self.events_dset_name, self.merged_name, ev_ref)
+        ev_ref = np.c_[(np.indices(hits_mask.shape)[0] + source_slice.start)[~hits_mask], hits_idx]
+
+        # raw_event -> hit
+        self.data_manager.write_ref(source_name, self.calib_hits_dset_name, ev_ref)
+
+        # event -> hit
+        self.data_manager.write_ref(self.events_dset_name, self.calib_hits_dset_name, ev_ref)
+
+        # hit -> backtracking
+        if has_mc_truth:
+            self.data_manager.write_ref(self.calib_hits_dset_name,self.mc_hit_frac_dset_name,np.c_[new_hits['id'], new_hits['id']])
+
