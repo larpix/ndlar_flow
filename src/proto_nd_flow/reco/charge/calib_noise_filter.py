@@ -36,7 +36,9 @@ class low_current_filter:
 
 class correlated_post_trigger_filter:
     '''
-        Module2 specific filter for noise from charge injection from ADC reference instability
+        Module 2 (v2b) specific filter for noise from charge injection from ADC reference instability
+        Only affecting channel_id 6, 7, 24
+        As these channels are not used in Moudle 0,1 and 3 (v2a), this filter will not affect the data from these modules
     '''
 
     RANGE_Q = [-25, 25]
