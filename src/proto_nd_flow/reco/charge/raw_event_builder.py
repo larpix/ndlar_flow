@@ -4,6 +4,15 @@ import logging
 from h5flow import H5FLOW_MPI
 if H5FLOW_MPI:
     from mpi4py import MPI
+try:
+    from sklearn.cluster import DBSCAN
+except:
+    print("Couldn't import DBSCAN, continuing")
+from h5flow.data.h5flow_data_manager import H5FlowDataManager
+from collections import defaultdict
+from h5flow.core import resources
+import json
+import proto_nd_flow.util.units as units
 
 class RawEventBuilder(object):
     '''
@@ -531,3 +540,274 @@ class ExtTrigRawEventBuilder(RawEventBuilder):
 
         return zip(*[v for v in zip(full_events, full_event_unix_ts)]) if mc_assn is None \
                 else zip(*[v for v in zip(full_events, full_event_unix_ts, full_event_mc_assn)])
+
+class LowEnergyEventBuilder(RawEventBuilder):
+    '''
+    An event builder for finding isolated low energy deposits. 
+    '''
+    ## defaults
+    default_eps = 5 # cm
+    default_min_samples = 1
+    default_max_cluster_nhit = 10
+    default_rollover_ticks = 10000000
+    default_clusters_dset_name = 'charge/clusters'
+    
+    configuration = defaultdict(lambda: dict(
+        vref_mv=1567.96875,
+        vcm_mv=478.125
+    ))
+
+    #: pixel pedestal value
+    pedestal = defaultdict(lambda: dict(
+        pedestal_mv=600
+    ))
+    
+    clusters_dtype = np.dtype([('id', 'u4'), ('nhit', '<u4'), ('Q', '<f8'), 
+                                    ('io_group', '<u8'), ('x', 'f8', (3,)), 
+                                    ('y', 'f8', (3,)), ('z', 'f8', (3,)), ('ts', 'i8', (3,)), ('unix', 'i8'), \
+                                    ('channel_id', 'i2', (10,)), ('chip_id', 'i2', (10,)), ('io_channel', 'i2', (10,)), \
+                                    ('unique_id', 'i4', (10,))])
+    
+    def __init__(self, **params):
+        super(LowEnergyEventBuilder, self).__init__(**params)
+        self.eps = params.get('eps', self.default_eps)
+        self.min_samples = params.get('min_samples', self.default_min_samples)
+        self.max_cluster_nhit = params.get('max_cluster_nhit', self.default_max_cluster_nhit)
+        self.rollover_ticks = params.get('rollover_ticks', self.default_rollover_ticks)
+        self.clusters_dset_name = params.get('clusters_dset_name', self.default_clusters_dset_name)
+        self.dbscan = DBSCAN(eps=self.eps, min_samples=self.min_samples)
+        self.pedestal_file = params.get('pedestal_file', '')
+        self.configuration_file = params.get('configuration_file', '')
+        self.load_pedestals()
+        self.load_configurations()
+        #self.packets_hits_ref = H5FlowDataManager.get_ref_region('charge/packets', 'charge/raw_hits')
+        
+    def get_config(self):
+        return dict(
+            eps = self.eps,
+            min_samples = self.min_samples,
+            max_cluster_nhit = self.max_cluster_nhit
+        )
+    
+    def build_events(self, packets, unix_ts, mc_assn=None):
+        events = []
+        event_unix_ts = []
+        event_mc_assn = [] if mc_assn is not None else None
+        event_clusters = []
+        rollover = np.zeros((len(packets),), dtype='i8')
+        
+        #hits = cache[self.hits_name][~rfn.structured_to_unstructured(cache[self.hits_name].mask).any(axis=-1)]
+        for io_group in np.unique(packets['io_group']):
+            mask = (packets['io_group'] == io_group) & (packets['packet_type'] == 6) & (packets['trigger_type'] == 83)
+            rollover[mask] = self.rollover_ticks
+            mask = (packets['io_group'] == io_group)
+            rollover[mask] = np.cumsum(rollover[mask]) - rollover[mask]
+            if mc_assn is None:
+                mask = (packets['io_group'] == io_group) & (packets['packet_type'] == 0) \
+                    & (packets['receipt_timestamp'].astype(int) - packets['timestamp'].astype(int) < 0)
+                rollover[mask] -= self.rollover_ticks
+
+        ts = packets['timestamp'].astype('i8') + rollover
+        sorted_idcs = np.argsort(ts)
+        ts = ts[sorted_idcs]
+
+        packets = packets[sorted_idcs]
+        unix = unix_ts['timestamp'][sorted_idcs]
+        #hits = hits[sorted_idcs]
+        hits_uniqueid = (((packets['io_group'].astype(int)) * 256
+                            + packets['io_channel'].astype(int)) * 256
+                            + packets['chip_id'].astype(int)) * 64 \
+                            + packets['channel_id'].astype(int)
+        vref = np.array(
+                [self.configuration[str(unique_id)]['vref_mv'] for unique_id in hits_uniqueid])
+        vcm = np.array([self.configuration[str(unique_id)]['vcm_mv']
+                        for unique_id in hits_uniqueid])
+        ped = np.array([self.pedestal[str(unique_id)]['pedestal_mv']
+                        for unique_id in hits_uniqueid])
+        hits_charge = self.charge_from_dataword(packets['dataword'],vref,vcm,ped) # ke-
+        zy = resources['Geometry'].pixel_coordinates_2D[packets['io_group'],
+                    packets['io_channel'], packets['chip_id'], packets['channel_id']]
+        tile_id = resources['Geometry'].tile_id[packets['io_group'],packets['io_channel']]
+        x_pix = resources['Geometry'].anode_drift_coordinate[(tile_id,)]
+        y_pix = zy[:,1]
+        z_pix = zy[:,0]
+        
+        hits_mask = (~np.isnan(z_pix) & ~np.isnan(y_pix))
+        packets = packets[hits_mask]
+        unix = unix[hits_mask]
+        #hits = hits[hits_mask]
+        ts = ts[hits_mask]
+        hits_charge = hits_charge[hits_mask]
+        x_pix = x_pix[hits_mask]
+        y_pix = y_pix[hits_mask]
+        z_pix = z_pix[hits_mask]
+        
+        hit_coordinates = np.hstack((x_pix[:, np.newaxis], \
+                                     y_pix[:, np.newaxis], \
+                                     z_pix[:, np.newaxis], \
+                                     ts[:, np.newaxis]))
+        hit_coordinates[:,3] = (hit_coordinates[:,3]*resources['RunData'].crs_ticks)*resources['LArData'].v_drift/units.cm
+        if len(hit_coordinates) == 0:
+            return zip(*[v for i, v in enumerate(zip(events, event_unix_ts))]) if mc_assn is None \
+                else zip(*[v for i, v in enumerate(zip(events, event_unix_ts, event_mc_assn))])
+        db = self.dbscan.fit(hit_coordinates)
+        labels = np.array(db.labels_)
+        #if len(labels):
+        #        max_index=np.max(labels)
+        #else:
+        #        max_index=0
+        #labels = np.concatenate((labels, np.array(db.labels_, dtype='int')+max_index))
+        labels_mask = labels != -1
+        #hits = hits[labels_mask]
+        #hits_ev_id = hits_ev_id[labels_mask]
+        #hits_unix_ts = hits_unix_ts[labels_mask]
+        labels = labels[labels_mask]
+        packets = packets[labels_mask]
+        indices_sorted = np.argsort(labels)
+        labels = labels[indices_sorted]
+        packets = packets[indices_sorted]
+        
+        channel_id = packets['channel_id']
+        io_channel = packets['io_channel']
+        chipid = packets['chip_id']
+        unique_ids = ((packets['io_group'] * 256 + packets['io_channel']) * 256 + packets['chip_id']) * 64 + packets['channel_id']
+        
+        #hits = hits[indices_sorted]
+        ts = ts[indices_sorted]
+        unix = unix[indices_sorted]
+
+        n_vals = np.bincount(labels)
+        n_vals_mask = n_vals != 0
+        n_vals = n_vals[n_vals_mask]
+        #packets = packets[n_vals_mask]
+        
+        q_clusters = np.bincount(labels, weights=hits_charge[labels_mask])[n_vals_mask]
+
+        label_indices = np.concatenate(([0], np.flatnonzero(labels[:-1] != labels[1:])+1, [len(labels)]))[1:-1]
+        label_timestamps = np.split(ts, label_indices)
+        label_pps = np.split(ts, label_indices)
+        label_x = np.split(x_pix, label_indices)
+        label_y = np.split(y_pix, label_indices)
+        label_z = np.split(z_pix, label_indices)
+        
+        label_channel_id = np.split(channel_id, label_indices)
+        label_io_channel = np.split(io_channel, label_indices)
+        label_chip_id = np.split(chipid, label_indices)
+        label_unique_ids = np.split(unique_ids, label_indices)
+
+        min_timestamps = np.array(list(map(np.min, label_timestamps)), dtype='u8')
+        max_timestamps = np.array(list(map(np.max, label_timestamps)), dtype='u8')
+        mid_timestamps = ((min_timestamps+max_timestamps)/2).astype('u8')
+        label_unix = np.split(unix, label_indices)
+        
+        unix_ts_clusters = np.array(list(map(np.min, label_unix)))
+        min_pps = np.array(list(map(np.min, label_pps)), dtype='u8')
+        max_pps = np.array(list(map(np.max, label_pps)), dtype='u8')
+        mid_pps = ((min_pps+max_pps)/2).astype('u8')
+        x_min = np.array(list(map(min, label_x)))
+        x_max = np.array(list(map(max, label_x)))
+        x_mid = (x_min+x_max)/2
+        y_min = np.array(list(map(min, label_y)))
+        y_max = np.array(list(map(max, label_y)))
+        y_mid = (y_min+y_max)/2
+        z_min = np.array(list(map(min, label_z)))
+        z_max = np.array(list(map(max, label_z)))
+        z_mid = (z_min+z_max)/2
+        
+        #nhit_mask = n_vals <= self.max_cluster_nhit
+        nhit_mask = np.ones(len(n_vals), dtype=bool)
+        
+        clusters_data = np.zeros((np.sum(nhit_mask),), dtype=self.clusters_dtype)
+        clusters_data['nhit'] = n_vals[nhit_mask]
+        clusters_data['Q'] = q_clusters[nhit_mask]
+        clusters_data['ts'][:,0] = min_timestamps[nhit_mask]
+        clusters_data['ts'][:,1] = mid_timestamps[nhit_mask]
+        clusters_data['ts'][:,2] = max_timestamps[nhit_mask]
+        clusters_data['unix'] = unix_ts_clusters[nhit_mask]
+        clusters_data['x'][:,0] = x_min[nhit_mask]
+        clusters_data['x'][:,1] = x_mid[nhit_mask]
+        clusters_data['x'][:,2] = x_max[nhit_mask]
+        clusters_data['y'][:,0] = y_min[nhit_mask]
+        clusters_data['y'][:,1] = y_mid[nhit_mask]
+        clusters_data['y'][:,2] = y_max[nhit_mask]
+        clusters_data['z'][:,0] = z_min[nhit_mask]
+        clusters_data['z'][:,1] = z_mid[nhit_mask]
+        clusters_data['z'][:,2] = z_max[nhit_mask]
+        label_io_group = np.split(packets['io_group'], label_indices)
+        io_group_clusters = np.array(list(map(np.min, label_io_group)))
+        clusters_data['io_group'] = io_group_clusters[nhit_mask]
+        
+        channel_id_list, chip_id_list, io_channel_list, unique_id_list = [], [], [], [] 
+        nhit_limit = 10
+        for i in range(len(label_channel_id)):
+            if len(label_channel_id[i]) > nhit_limit:
+                stop = 10
+            else:
+                stop = len(label_channel_id[i])
+            #print(label_channel_id[i])
+            #print(label_channel_id[i][:stop])
+            channel_id_array = np.ones(nhit_limit)*-1
+            #print(channel_id_array)
+            channel_id_array[0:stop] = label_channel_id[i][:stop]
+            #print(channel_id_array)
+            #print(' ')
+            channel_id_list.append(channel_id_array)
+            
+            chip_id_array = np.ones(nhit_limit)*-1
+            chip_id_array[0:stop] = label_chip_id[i][:stop]
+            chip_id_list.append(chip_id_array)  
+            
+            io_channel_array = np.ones(nhit_limit)*-1
+            io_channel_array[0:stop] = label_io_channel[i][:stop]
+            io_channel_list.append(io_channel_array)
+            
+            unique_id_array = np.ones(nhit_limit)*-1
+            unique_id_array[0:stop] = label_unique_ids[i][:stop]
+            unique_id_list.append(unique_id_array)
+            
+        clusters_data['channel_id'] = np.array(channel_id_list)
+        clusters_data['chip_id'] = np.array(chip_id_list)
+        clusters_data['io_channel'] = np.array(io_channel_list)
+        clusters_data['unique_id'] = np.array(unique_id_list)
+        #label_unix_ts = np.split(unix_ts, label_indices)
+        #unix_ts_clusters = np.array(list(map(np.min, label_unix_ts)))
+        #clusters_data['unix_ts'] = unix_ts_clusters[nhit_mask]
+        #label_ev_id = np.split(hits_ev_id, label_indices)
+        #ev_id_clusters = np.array(list(map(np.min, label_ev_id)))
+        #ev_id_clusters = np.ones(len(clusters_data))*events[i]['id']
+        
+        unique_labels = np.unique(labels)[nhit_mask]
+        label_packets = np.split(packets, label_indices)
+        label_unix_ts = np.split(unix_ts, label_indices)
+        if mc_assn:
+            label_mc_assn = np.split(mc_assn, label_indices)
+        for i in range(len(label_packets)):
+            events.append(label_packets[i])
+            event_unix_ts.append(label_unix_ts[i])
+            if mc_assn is not None:
+                event_mc_assn.append(mc_assn[mask])
+            event_clusters.append(clusters_data[i])
+        
+        #clusters_slice = H5FlowDataManager.reserve_data(self.clusters_dset_name, len(clusters_data))
+        #clusters_data['id'] = clusters_slice.start + np.arange(len(clusters_data), dtype=int)
+        #H5FlowDataManager.write_data(self.clusters_dset_name, clusters_slice, clusters_data)
+                
+        return zip(*[v for i, v in enumerate(zip(events, event_unix_ts, event_clusters))]) if mc_assn is None \
+            else zip(*[v for i, v in enumerate(zip(events, event_unix_ts, event_mc_assn, event_clusters))])
+    
+    @staticmethod
+    def charge_from_dataword(dw, vref, vcm, ped):
+        return dw / 256. * (vref - vcm) + vcm - ped
+
+    def load_pedestals(self):
+        if self.pedestal_file != '': #and not resources['RunData'].is_mc:
+            with open(self.pedestal_file, 'r') as infile:
+                for key, value in json.load(infile).items():
+                    self.pedestal[key] = value
+
+    def load_configurations(self):
+        if self.configuration_file != '':# and not resources['RunData'].is_mc:
+            with open(self.configuration_file, 'r') as infile:
+                for key, value in json.load(infile).items():
+                    self.configuration[key] = value
+            

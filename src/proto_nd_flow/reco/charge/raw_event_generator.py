@@ -187,6 +187,12 @@ class RawEventGenerator(H5FlowGenerator):
         # initialize data objects
         self.data_manager.create_dset(self.raw_event_dset_name, dtype=self.raw_event_dtype)
         self.data_manager.create_dset(self.packets_dset_name, dtype=self.packets_dtype)
+        self.clusters_dtype = np.dtype([('id', 'u4'), ('nhit', '<u4'), ('Q', '<f8'), 
+                                    ('io_group', '<u8'), ('x', 'f8', (3,)), 
+                                    ('y', 'f8', (3,)), ('z', 'f8', (3,)), ('ts', 'u8', (3,)), ('unix', 'i8'), \
+                                    ('channel_id', 'i2', (10,)), ('chip_id', 'i2', (10,)), ('io_channel', 'i2', (10,)), \
+                                    ('unique_id', 'i4', (10,))])
+        self.data_manager.create_dset('charge/clusters', dtype=self.clusters_dtype)
         self.data_manager.create_ref(self.raw_event_dset_name, self.packets_dset_name)
         self.data_manager.set_attrs(self.raw_event_dset_name,
                                     classname=self.classname,
@@ -422,29 +428,39 @@ class RawEventGenerator(H5FlowGenerator):
                 mc_assn = mc_assn[sync_noise_mask]
 
         # run event builder
-        events, event_unix_ts, event_mc_assn = [], [], None
+        events, event_unix_ts, event_mc_assn, event_clusters = [], [], None, []
         eb_rv = list(self.event_builder.build_events(packet_buffer, unix_ts, mc_assn))
         if eb_rv:
             events, event_unix_ts = eb_rv[:2]
             if self.is_mc:
                 event_mc_assn = eb_rv[2]
-
+                if len(eb_rv) > 3:
+                    event_clusters = eb_rv[3]
+            if not self.is_mc and len(eb_rv) > 2:
+                event_clusters = eb_rv[2]
+            
         # apply nhit cut
-        nhit_filtered = list(filter(lambda x: (len(x[0]) >= self.nhit_cut) and (len(x[0]) <= self.nhit_limit), zip(events, event_unix_ts)))
+        nhit_filtered = list(filter(lambda x: (len(x[0]) >= self.nhit_cut) and (len(x[0]) <= self.nhit_limit), zip(events, event_unix_ts, event_clusters)))
         if self.is_mc:
             mc_assn_filtered = list(filter(lambda x: (len(x) >= self.nhit_cut) and (len(x) <= self.nhit_limit), event_mc_assn))
 
         if len(nhit_filtered):
-            events, event_unix_ts = zip(*nhit_filtered)
+            events, event_unix_ts, event_clusters = zip(*nhit_filtered)
             if self.is_mc:
                 event_mc_assn = mc_assn_filtered
         else:
-            events, event_unix_ts = list(), list()
+            events, event_unix_ts, event_clusters = list(), list(), list()
             if self.is_mc:
                 event_mc_assn = list()
         nevents = len(events)
         if not nevents:
             return H5FlowGenerator.EMPTY
+
+        if len(event_clusters):
+            event_clusters = np.array(event_clusters)
+            clusters_slice = self.data_manager.reserve_data('charge/clusters', len(event_clusters))
+            event_clusters['id'] = clusters_slice.start + np.arange(len(event_clusters), dtype=int)
+            self.data_manager.write_data('charge/clusters', clusters_slice, event_clusters)
 
         # write event to file
         raw_event_array = np.zeros((nevents,), dtype=self.raw_event_dtype)
