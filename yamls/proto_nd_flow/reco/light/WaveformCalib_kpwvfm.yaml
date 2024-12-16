@@ -1,16 +1,16 @@
-classname: WaveformCalib
-path: proto_nd_flow.reco.light.wvfm_calib
+classname: WaveformCalib_kpwvfm
+path: proto_nd_flow.reco.light.wvfm_calib_keepwvfm
 requires:
   - 'light/events'
-  - 'light/deconv'
-  - 'light/deconv/alignment'
+  - 'light/wvfm'
+ # - 'light/deconv'
+ # - 'light/deconv/alignment'
 params:
   # input
-  wvfm_dset_name: 'light/deconv'
+  wvfm_dset_name: 'light/wvfm'
 
   # output
   cwvfm_dset_name: 'light/cwvfm'
-
   # configuration parameters
   gain:
     # by default, don't include channel in waveform sum
