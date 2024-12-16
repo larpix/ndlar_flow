@@ -144,8 +144,8 @@ class WaveformCalib_kpwvfm(H5FlowStage):
             for chan in range(wvfm_data['samples'].shape[2]):
                 mask = event_data['wvfm_valid'][:,adc,chan].astype(bool)
                 cwvfm_data['samples'][mask,adc,chan,:] = ((
-                    wvfm_data['samples'][mask,adc,chan].filled(0) - (self.thresh[adc][chan] * 4))
-                    * self.gain[adc][chan] * 4)
+                    wvfm_data['samples'][mask,adc,chan].filled(0) - (self.thresh[adc][chan]))
+                    * self.gain[adc][chan])
 
         # reserve new data
         cwvfm_slice = self.data_manager.reserve_data(self.cwvfm_dset_name, source_slice)
