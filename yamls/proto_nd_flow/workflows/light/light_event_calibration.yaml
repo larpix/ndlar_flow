@@ -5,7 +5,7 @@ flow:
   stages: [wvfm_calib_keepwvfm]
 
   # remove waveforms from output file
-  #drop: ['light/wvfm']
+  drop: ['light/wvfm']
 
 resources:
   - !include yamls/proto_nd_flow/resources/RunData.yaml
