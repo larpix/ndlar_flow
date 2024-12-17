@@ -257,9 +257,10 @@ class CalibNoiseFilter(H5FlowStage):
         super(CalibNoiseFilter, self).run(source_name, source_slice, cache)
 
         # set up new datasets
+        hits_frac_bt = None
         if resources['RunData'].is_mc:
             hits_frac_bt = cache['hits_frac_backtrack']
-        has_mc_truth = resources['RunData'].is_mc and (hits_frac_bt is not None)
+        has_mc_truth = hits_frac_bt is not None
 
         self.data_manager.create_dset(self.calib_hits_dset_name, dtype=self.hits_dtype)
         if has_mc_truth:
@@ -271,7 +272,8 @@ class CalibNoiseFilter(H5FlowStage):
             self.data_manager.create_ref(self.calib_hits_dset_name, self.mc_hit_frac_dset_name)
 
         event_id = np.r_[source_slice]
-        hits_frac_bt = np.squeeze(cache['hits_frac_backtrack'], axis=-1) # additional dimension from the reference
+        if has_mc_truth:
+            hits_frac_bt = np.squeeze(cache['hits_frac_backtrack'], axis=-1) # additional dimension from the reference
         hits = cache[self.hits_name]
 
         hits, hits_ref, back_track = self.filter_hits(hits, back_track=hits_frac_bt)
@@ -292,12 +294,12 @@ class CalibNoiseFilter(H5FlowStage):
         #    np.place(hits['id'], ~hits_mask, hits_idx)
 
         new_hits = hits[~hits_mask]
-        new_hits_frac_bt = back_track[~hits_mask]
 
         # write dataset and ref
         self.data_manager.write_data(self.calib_hits_dset_name, hits_slice, new_hits)
 
         if has_mc_truth:
+            new_hits_frac_bt = back_track[~hits_mask]
             # make sure hitss and hits backtracking match in numbers
             if new_hits.shape[0] == new_hits_frac_bt.shape[0]:
                 self.data_manager.write_data(self.mc_hit_frac_dset_name, hit_bt_slice, new_hits_frac_bt)
