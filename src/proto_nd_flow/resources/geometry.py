@@ -34,7 +34,7 @@ class Geometry(H5FlowResource):
 
         Provides (for charge geometry):
          - ``beam_direction``    [param->attr]: Cartesian coordinate of beam direction
-         - ``crs_geometry_file`` [param->attr]: path to yaml file describing charge 
+         - ``crs_geometry_files`` [param->attr]: path to yaml files describing charge 
                                                 readout system geometry
          - ``drift_direction``   [param->attr]: Cartesian coordinate of drift direction
 
@@ -55,6 +55,7 @@ class Geometry(H5FlowResource):
                                                 is in the LAr fiducial volume
 
         Provides (for light geometry):
+         - ``lrs_geometry_file`` [param->attr]: path to yaml file describing light readout system geometry
          - ``det_rel_pos``: lookup table for relative position (TPC,side,vertical position from bottom) of light detectors (Full ArCLight or LCM)
          - ``sipm_rel_pos``: lookup table for lookup table for relative position (TPC,side,vertical position from bottom) of SiPMs (Single SiPM)
          - ``det_id``: lookup table for detector number from adc, channel id
@@ -79,7 +80,7 @@ class Geometry(H5FlowResource):
                     lrs_geometry_file: 'data/proto_nd_flow/light_module_desc-0.0.0.yaml'
 
     '''
-    class_version = '0.2.0'
+    class_version = '0.3.0'
 
     default_path = 'geometry_info'
     default_network_agnostic = False
@@ -155,6 +156,7 @@ class Geometry(H5FlowResource):
             write_lut(self.data_manager, self.path, self.tile_id, 'tile_id')
 
             if not self.charge_only:
+                self.data_manager.set_attrs(self.path, lrs_geometry_file=self.lrs_geometry_file)
                 write_lut(self.data_manager, self.path, self.det_rel_pos, 'det_rel_pos')
                 write_lut(self.data_manager, self.path, self.sipm_rel_pos, 'sipm_rel_pos')
                 write_lut(self.data_manager, self.path, self.det_id, 'det_id')
@@ -551,17 +553,12 @@ class Geometry(H5FlowResource):
         if tpc == -1 or det == -1:
             return [-1,-1,-1]
 
-        #det_type = self.lrs_geometry_yaml["adc_to_det_type"][adc]
-
         # Get TPC side
         side = self.lrs_geometry_yaml["det_side"][det]
 
         # Get vertical position
         # Get Y pos
-        #if det_type == 0:
         vert_pos = self.lrs_geometry_yaml["ch_to_vert_bin"][adc][channel]
-        #else:
-            #vert_pos = self.lrs_geometry_yaml["ch_to_vert_bin"][1][channel]
 
         return tpc, side, vert_pos
 
@@ -591,10 +588,7 @@ class Geometry(H5FlowResource):
 
         # Get Z pos
         z_pos = self.det_geometry_yaml["tpc_offsets"][tpc//2][2] + self.lrs_geometry_yaml["tpc_center_offset"][tpc][2]
-        #if tpc % 2 == 0:
         z_pos += self.lrs_geometry_yaml["sipm_center"][tpc_channel][2]
-        #else:
-        #    z_pos -= self.lrs_geometry_yaml["sipm_center"][tpc_channel][2]
 
         return x_pos, y_pos, z_pos
 
@@ -619,8 +613,6 @@ class Geometry(H5FlowResource):
         adc_ids = np.array([v for v in self.lrs_geometry_yaml['ch_to_vert_bin'].keys()])
         max_chan_per_det = max([len(chan) for tpc in self.lrs_geometry_yaml['det_chan'].values() for chan in tpc.values()])
         chan_ids = np.unique(sum([chan for tpc in self.lrs_geometry_yaml['det_chan'].values() for chan in tpc.values()],[]))
-        #print('Channel IDs:', chan_ids)
-        #print('ADC IDs:', adc_ids)
 
         tpc_mod = np.full(tpc_ids.shape, -1, dtype=int)
         for i, mod in enumerate(self.det_geometry_yaml["module_to_tpcs"]):
@@ -701,13 +693,14 @@ class Geometry(H5FlowResource):
         self._max_drift_distance = det_geometry_yaml['drift_length'] # det geo yaml is already in cm
 
         module_to_io_groups = det_geometry_yaml['module_to_io_groups']
+        iog_per_mod = len(next(iter(module_to_io_groups.values())))
 
         tile_geometry = {}
 
         ## warning, this is assuming same number of tiles in all modules for now
         tiles = np.arange(1,len(geometry_yamls[0]['tile_chip_to_io'])*len(det_geometry_yaml['module_to_io_groups'])+1)
         io_groups = [
-            geometry_yamls[self.crs_geometry_to_module[mod-1]]['tile_chip_to_io'][tile][chip] // 1000 + (mod-1)*4
+            geometry_yamls[self.crs_geometry_to_module[mod-1]]['tile_chip_to_io'][tile][chip] // 1000 + (mod-1)*iog_per_mod
             for mod in module_to_io_groups
             for tile in geometry_yamls[self.crs_geometry_to_module[mod-1]]['tile_chip_to_io']
             for chip in geometry_yamls[self.crs_geometry_to_module[mod-1]]['tile_chip_to_io'][tile]
@@ -785,7 +778,7 @@ class Geometry(H5FlowResource):
                         # can just loop over every N io channels and add them to the LUT
                         start_io_channel = ((io_channel-1)//self.n_io_channels_per_tile)*self.n_io_channels_per_tile + 1
                         for io_channel in range(start_io_channel, start_io_channel+self.n_io_channels_per_tile):
-                            self._tile_id[([io_group], [io_channel])] = tile
+                            self._tile_id[([io_group], [io_channel])] = tile+(module_id-1)*len(tile_chip_to_io)
 
                 for chip_channel in chip_channel_to_position:
                     chip = chip_channel // 1000
@@ -821,13 +814,12 @@ class Geometry(H5FlowResource):
                         io_channels = range(tile_min_io_channel, 4 + tile_min_io_channel)
                     else:
                         io_channels = [io_channel]
+
                     for ioc in io_channels:
                         try:
                             self._pixel_coordinates_2D[(io_group, ioc, chip, channel)] = z, y
                         except:
                             print(io_group, ioc, chip, channel)
-
-                    self._pixel_coordinates_2D[(io_group, io_channel, chip, channel)] = z, y
 
         # Determine module readout bounds
         self._get_module_RO_bounds()
