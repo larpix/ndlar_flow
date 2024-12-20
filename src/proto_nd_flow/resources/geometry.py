@@ -576,8 +576,6 @@ class Geometry(H5FlowResource):
         # Get X pos
         x_pos = self.det_geometry_yaml["tpc_offsets"][tpc//2][0] + self.lrs_geometry_yaml["tpc_center_offset"][tpc][0] 
         if tpc % 2 == 0:
-            #print('TPC:', tpc)
-            #print('TPC Channel:', tpc_channel)
             x_pos += self.lrs_geometry_yaml["sipm_center"][tpc_channel][0]
         else:
             x_pos -= self.lrs_geometry_yaml["sipm_center"][tpc_channel][0]

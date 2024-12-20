@@ -189,7 +189,6 @@ class CalibHitBuilder(H5FlowStage):
                     n_masked = np.ma.count_masked(raw_hits[t0_it]['id'],axis=0)
                     n_not_masked = len(raw_hits[t0_it]['id']) - n_masked
                     last_index = first_index + n_not_masked
-                    # print(t0_it,n_not_masked,first_index,first_index+n_not_masked,t0)
                     hit_t0[first_index:last_index] = np.full(n_not_masked,t0)
                     first_index += n_not_masked
 
