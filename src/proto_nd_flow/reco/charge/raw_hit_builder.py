@@ -122,7 +122,6 @@ class RawHitBuilder(H5FlowStage):
             zy = resources['Geometry'].pixel_coordinates_2D[packets_arr['io_group'],
                                                 packets_arr['io_channel'], packets_arr['chip_id'], packets_arr['channel_id']]
             tile_id = resources['Geometry'].tile_id[packets_arr['io_group'],packets_arr['io_channel']]
-            print(min(tile_id), max(tile_id))
             x = resources['Geometry'].anode_drift_coordinate[(tile_id,)]
 
             raw_hits_arr['id'] = raw_hits_slice.start + np.arange(n, dtype=int)
