@@ -406,7 +406,7 @@ class ExtTrigRawEventBuilder(RawEventBuilder):
     '''
     default_window = 1820 * 1.1
     default_rollover_ticks = 1E7
-    default_trig_io_grp = 1
+    default_trig_io_grp = 1     # -1 -> all io groups
     
     default_build_off_beam_events=False
     default_off_beam_window = 1820 // 2
