@@ -11,5 +11,9 @@ params:
   ext_trigs_dset_name: 'charge/ext_trigs'
 
   # configuration parameters
-  unix_ts_window: 1
-  ts_window: 30
+  unix_ts_window: 1             # seconds
+  ts_window: 30                 # ticks (0.1 us)
+
+  enable_triggerless: true
+  triggerless_unix_ts_window: 1
+  triggerless_ts_window: 500

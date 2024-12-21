@@ -45,8 +45,14 @@ class Charge2LightAssociation(H5FlowStage):
     '''
     class_version = '0.0.1'
 
+    # TODO: Switch to "absolute" times to avoid issues at PPS boundaries
+
     default_unix_ts_window = 1  # how big of a symmetric window to use with unix timestamps (0=exact match, 1=±1 second, ...) [s]
-    default_ts_window = 1000  # how big of a symmetric window to use with PPS timestamps (0=exact match, 10=±10 ticks, ...) [ticks]
+    default_ts_window = 30  # how big of a symmetric window to use with PPS timestamps (0=exact match, 10=±10 ticks, ...) [ticks]
+    default_enable_triggerless = False # whether to also consider charge events that don't have an external trigger
+    default_triggerless_unix_ts_window = 1
+    default_triggerless_ts_window = 500
+
 
     def __init__(self, **params):
         super(Charge2LightAssociation, self).__init__(**params)
@@ -57,6 +63,12 @@ class Charge2LightAssociation(H5FlowStage):
 
         self.unix_ts_window = params.get('unix_ts_window', self.default_unix_ts_window)
         self.ts_window = params.get('ts_window', self.default_ts_window)
+        self.enable_triggerless = params.get('enable_triggerless',
+                                             self.default_require_ext_trig)
+        self.triggerless_unix_ts_window = params.get('triggerless_unix_ts_window',
+                                                     self.default_triggerless_unix_ts_window)
+        self.triggerless_ts_window = params.get('triggerless_ts_window',
+                                                self.default_triggerless_ts_window)
 
         self.total_charge_events = 0
         self.total_charge_triggers = 0
@@ -127,21 +139,22 @@ class Charge2LightAssociation(H5FlowStage):
             print(f'Total charge event matching: {self.total_matched_events}/{self.total_charge_events} ({event_eff:0.04f})')
             print(f'Total light event matching: {self.total_matched_light}/{self.total_light_events} ({light_eff:0.04f})') 
 
-    def match_on_timestamp(self, charge_unix_ts, charge_pps_ts):
+    def match_on_timestamp(self, charge_unix_ts, charge_pps_ts,
+                           unix_ts_window, ts_window):
         unix_ts_start = charge_unix_ts.min()
         unix_ts_end = charge_unix_ts.max()  
         
-        if float(self.light_unix_ts_start) >= float(unix_ts_end) + float(self.unix_ts_window) or \
-           float(self.light_unix_ts_end) <= float(unix_ts_start) - float(self.unix_ts_window):
+        if float(self.light_unix_ts_start) >= float(unix_ts_end) + float(unix_ts_window) or \
+           float(self.light_unix_ts_end) <= float(unix_ts_start) - float(unix_ts_window):
             # no overlap, short circuit
             return np.empty((0, 2), dtype=int)
 
         # subselect only portion of light events that overlaps with unix timestamps
-        i_min = np.argmax((self.light_unix_ts >= unix_ts_start - self.unix_ts_window))
-        i_max = len(self.light_unix_ts) - np.argmax((self.light_unix_ts <= unix_ts_end + self.unix_ts_window)[::-1])
+        i_min = np.argmax((self.light_unix_ts >= unix_ts_start - unix_ts_window))
+        i_max = len(self.light_unix_ts) - np.argmax((self.light_unix_ts <= unix_ts_end + unix_ts_window)[::-1])
         sl = slice(i_min, i_max)
-        assoc_mat = (np.abs(self.light_unix_ts[sl].reshape(1, -1) - charge_unix_ts.reshape(-1, 1)) <= self.unix_ts_window) \
-                     & (np.abs(self.light_ts[sl].reshape(1, -1) - charge_pps_ts.reshape(-1, 1)) <= self.ts_window)
+        assoc_mat = (np.abs(self.light_unix_ts[sl].reshape(1, -1) - charge_unix_ts.reshape(-1, 1)) <= unix_ts_window) \
+                     & (np.abs(self.light_ts[sl].reshape(1, -1) - charge_pps_ts.reshape(-1, 1)) <= ts_window)
         idcs = np.argwhere(assoc_mat)
         if len(idcs):
             idcs[:, 1] = self.light_event_id[sl][idcs[:, 1]]  # idcs now contains ext trigger index <-> global light event id
@@ -175,29 +188,44 @@ class Charge2LightAssociation(H5FlowStage):
             self.write(ext_trig_ref, ev_ref) # write empty refs
             return
 
-        # check match on external triggers
+        unix_ts = event_data['unix_ts'].reshape(-1, 1)    # (N, 1)
+
+        # Start by looking for external triggers...
         if np.any(ext_trigs_sel):
             ext_trigs_all = ext_trigs_data.data[ext_trigs_sel]  # (kN, m)
             ext_trigs_idcs = ext_trigs_idcs.data[ext_trigs_sel] # (kN,)
 
-            unix_matrix = event_data['unix_ts'].reshape(-1, 1)  # (N, 1)
-            unix_matrix = np.broadcast_to(unix_matrix,
-                                          ext_trigs_data.shape) # (N, m)
+            unix_matrix = np.broadcast_to(unix_ts,              # (N, 1),
+                                          ext_trigs_data.shape) # (N, m) -> (N, m)
 
             ext_trigs_unix_ts = unix_matrix[ext_trigs_sel]      # (kN, m)
             ext_trigs_ts = ext_trigs_all['ts']                  # (kN, m)
-            idcs = self.match_on_timestamp(ext_trigs_unix_ts,   # (R, 2)
-                                           ext_trigs_ts)
+            idcs = self.match_on_timestamp(ext_trigs_unix_ts,   # -> (R, 2)
+                                           ext_trigs_ts,
+                                           self.unix_ts_window, self.ts_window)
 
             if len(idcs):
                 idcs_global = np.c_[ext_trigs_idcs[idcs[:, 0]], idcs[:, 1]] # (R, 2)
                 ext_trig_ref = np.append(ext_trig_ref, idcs_global, axis=0) # (R0+R, 2)
-                ev_id_bcast = np.broadcast_to(ev_id[:,np.newaxis],          # (N, 1),
+                ev_id_bcast = np.broadcast_to(ev_id[:, np.newaxis],         # (N, 1),
                                               ext_trigs_sel.shape)          # (N, m) -> (N, m)
                 ev_idcs = ev_id_bcast[ext_trigs_sel]                        # (kN, m)
                 ev_idcs_global = np.c_[ev_idcs[idcs[:, 0]], idcs[:, 1]]     # (R, 2)
                 ev_ref = np.append(ev_ref, ev_idcs_global, axis=0)
-                ev_ref = np.unique(ev_ref, axis=0)
+
+        # ...then, if ext_trigs aren't _required_, look at all charge events
+        if self.enable_triggerless:
+            larpix_ts = event_data['ts_start'].reshape(-1, 1) # (N, 1)
+            # TODO: Add controllable time shift?
+            idcs = self.match_on_timestamp(unix_ts, larpix_ts,
+                                           self.triggerless_unix_ts_window,
+                                           self.triggerless_ts_window)
+
+            if len(idcs):
+                ev_idcs_global = np.c_[ev_id[idcs[:, 0]], idcs[:, 1]] # (P, 2)
+                ev_ref = np.append(ev_ref, ev_idcs_global, axis=0)
+
+        ev_ref = np.unique(ev_ref, axis=0)
 
         logging.info(f'found charge/light match on {len(ext_trig_ref)}/{ext_trigs_sel.sum()} triggers')
         logging.info(f'found charge/light match on {len(ev_ref)}/{nevents} events')
