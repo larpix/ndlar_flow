@@ -1,10 +1,10 @@
 import numpy as np
 import numpy.ma as ma
-import numpy.lib.recfunctions as rfn
 import logging
 
 from h5flow.core import H5FlowStage, resources
 from h5flow import H5FLOW_MPI
+from proto_nd_flow.util.array import mask2sel
 import proto_nd_flow.util.units as units
 
 
@@ -149,47 +149,63 @@ class Charge2LightAssociation(H5FlowStage):
             idcs = np.empty((0,2), dtype=int)
 
         return idcs
-            
-    def run(self, source_name, source_slice, cache):
-        super(Charge2LightAssociation, self).run(source_name, source_slice, cache)
 
-        event_data = cache[self.events_dset_name]
-        ext_trigs_data = cache[self.ext_trigs_dset_name]
-        ext_trigs_idcs = cache[self.ext_trigs_dset_name + '_idcs']
-        ext_trigs_mask = ~rfn.structured_to_unstructured(ext_trigs_data.mask).any(axis=-1)
-
-        nevents = len(event_data)
-        ev_id = np.arange(source_slice.start, source_slice.stop, dtype=int)
-        ext_trig_ref = np.empty((0, 2), dtype=int)
-        ev_ref = np.empty((0, 2), dtype=int)        
-
-        # check match on external triggers
-        if nevents:
-            ext_trigs_mask = ~rfn.structured_to_unstructured(ext_trigs_data.mask).any(axis=-1)
-            if np.any(ext_trigs_mask):
-                ext_trigs_all = ext_trigs_data.data[ext_trigs_mask]
-                ext_trigs_idcs = ext_trigs_idcs.data[ext_trigs_mask]
-                ext_trigs_unix_ts = np.broadcast_to(event_data['unix_ts'].reshape(-1, 1), ext_trigs_data.shape)[ext_trigs_mask]
-                ext_trigs_ts = ext_trigs_all['ts']
-                idcs = self.match_on_timestamp(ext_trigs_unix_ts, ext_trigs_ts)
-
-                if len(idcs):
-                    ext_trig_ref = np.append(ext_trig_ref, np.c_[ext_trigs_idcs[idcs[:, 0]], idcs[:, 1]], axis=0)
-                    ev_id_bcast = np.broadcast_to(ev_id[:,np.newaxis], ext_trigs_mask.shape)
-                    ev_ref = np.unique(np.append(ev_ref, np.c_[ev_id_bcast[ext_trigs_mask][idcs[:, 0]], idcs[:, 1]], axis=0), axis=0)
-
-                logging.info(f'found charge/light match on {len(ext_trig_ref)}/{ext_trigs_mask.sum()} triggers')
-                logging.info(f'found charge/light match on {len(ev_ref)}/{len(event_data)} events')
-                self.total_charge_triggers += ext_trigs_mask.sum()
-                self.total_matched_triggers += len(np.unique(ext_trig_ref[:,0]))
-                self.total_matched_events += len(np.unique(ev_ref[:,0]))
-                self.matched_light[np.unique(ext_trig_ref[:,1])] = True
-
-        # write references
+    def write(self, ext_trig_ref, ev_ref):
         # ext trig -> light event
         self.data_manager.write_ref(self.ext_trigs_dset_name, self.light_event_dset_name, ext_trig_ref)
 
         # charge event -> light event
         self.data_manager.write_ref(self.events_dset_name, self.light_event_dset_name, ev_ref)
 
-        self.total_charge_events += len(event_data)
+            
+    def run(self, source_name, source_slice, cache):
+        super(Charge2LightAssociation, self).run(source_name, source_slice, cache)
+
+        event_data = cache[self.events_dset_name] # (N,)
+        ext_trigs_data = cache[self.ext_trigs_dset_name] # (N, m); m small (e.g. 1)
+        ext_trigs_idcs = cache[self.ext_trigs_dset_name + '_idcs'] # (N,)
+        ext_trigs_sel = mask2sel(ext_trigs_data)                   # (N,)
+
+        nevents = len(event_data)                                           # N
+        ev_id = np.arange(source_slice.start, source_slice.stop, dtype=int) # (N,)
+        ext_trig_ref = np.empty((0, 2), dtype=int)
+        ev_ref = np.empty((0, 2), dtype=int)
+
+        if nevents == 0:
+            self.write(ext_trig_ref, ev_ref) # write empty refs
+            return
+
+        # check match on external triggers
+        if np.any(ext_trigs_sel):
+            ext_trigs_all = ext_trigs_data.data[ext_trigs_sel]  # (kN, m)
+            ext_trigs_idcs = ext_trigs_idcs.data[ext_trigs_sel] # (kN,)
+
+            unix_matrix = event_data['unix_ts'].reshape(-1, 1)  # (N, 1)
+            unix_matrix = np.broadcast_to(unix_matrix,
+                                          ext_trigs_data.shape) # (N, m)
+
+            ext_trigs_unix_ts = unix_matrix[ext_trigs_sel]      # (kN, m)
+            ext_trigs_ts = ext_trigs_all['ts']                  # (kN, m)
+            idcs = self.match_on_timestamp(ext_trigs_unix_ts,   # (R, 2)
+                                           ext_trigs_ts)
+
+            if len(idcs):
+                idcs_global = np.c_[ext_trigs_idcs[idcs[:, 0]], idcs[:, 1]] # (R, 2)
+                ext_trig_ref = np.append(ext_trig_ref, idcs_global, axis=0) # (R0+R, 2)
+                ev_id_bcast = np.broadcast_to(ev_id[:,np.newaxis],          # (N, 1),
+                                              ext_trigs_sel.shape)          # (N, m) -> (N, m)
+                ev_idcs = ev_id_bcast[ext_trigs_sel]                        # (kN, m)
+                ev_idcs_global = np.c_[ev_idcs[idcs[:, 0]], idcs[:, 1]]     # (R, 2)
+                ev_ref = np.append(ev_ref, ev_idcs_global, axis=0)
+                ev_ref = np.unique(ev_ref, axis=0)
+
+        logging.info(f'found charge/light match on {len(ext_trig_ref)}/{ext_trigs_sel.sum()} triggers')
+        logging.info(f'found charge/light match on {len(ev_ref)}/{nevents} events')
+        self.total_charge_triggers += ext_trigs_sel.sum()
+        self.total_matched_triggers += len(np.unique(ext_trig_ref[:,0]))
+        self.total_matched_events += len(np.unique(ev_ref[:,0]))
+        self.matched_light[np.unique(ev_ref[:,1])] = True
+
+        self.write(ext_trig_ref, ev_ref)
+
+        self.total_charge_events += nevents
