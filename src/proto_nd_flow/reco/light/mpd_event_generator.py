@@ -116,10 +116,22 @@ class LightMPDEventGenerator(H5FlowGenerator):
         _, self.nbytes_runinfo, self.runinfo =adc64format.mpd_parse_run_start(self.input_file.stream)
         # use the first file for the event reference
         _, self.chunk_size, test_event = adc64format.mpd_parse_chunk(self.input_file.stream)
+        if any(dev_data is None for dev_data in test_event['data']):
+            print("First event corrupted, check second event")
+            _, self.chunk_size, test_event = adc64format.mpd_parse_chunk(self.input_file.stream)
+        if any(dev_data is None for dev_data in test_event['data']):
+            print("Second event also corrupted, assuming all events are corrupted")
+            print("Parsing only valid ADCs")
+            self.valid_adc_index = [index for index, value in enumerate(test_event['data']) if value is not None]
+            if not self.valid_adc_index:
+                raise ValueError("No valid ADCs found")
+        else:
+            self.valid_adc_index = range(len(test_event['data']))
+        self.first_valid_adc = self.valid_adc_index[0]
         ndevices = len(test_event['data'])
         total_length_b = self.input_file.stream.seek(0, 2)-self.nbytes_runinfo
         self.input_file.reset()
-        self.n_samples = test_event['data'][0].dtype['voltage'].shape[-1]
+        self.n_samples = test_event['data'][self.first_valid_adc].dtype['voltage'].shape[-1]
 
         if 'sn_table' in params:
             self.sn_table = [int(value,16) for value in params['sn_table']]
@@ -188,9 +200,9 @@ class LightMPDEventGenerator(H5FlowGenerator):
                 if not events:
                     continue
                 event = events['event']
-                data = [np.array(arr) for arr in events['data']]
-                device = np.array(events['device'])
-                time = np.array(events['time'])
+                data = [np.array(events['data'][index]) for index in self.valid_adc_index]
+                device = np.array([events['device'][index] for index in self.valid_adc_index])
+                time = np.array([events['time'][index] for index in self.valid_adc_index])
                 event_arr[ievent]['event'] = event['event']
                 for iadc, sn in enumerate(self.sn_table):
                     data_index = np.where(device["serial"] == sn)[0]
